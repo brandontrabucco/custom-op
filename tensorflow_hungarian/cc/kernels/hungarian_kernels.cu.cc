@@ -73,7 +73,7 @@ __global__ void resize(const int32 size_n,
 template <typename T>
 __global__ void replace_infinities(const int32 size,
                                    int32* device_max,
-                                   T infinity,
+                                   const T infinity,
                                    const T* costs,
                                    T* square_costs) {
 
@@ -243,7 +243,7 @@ __global__ void count_mask(int32 size,
             atomicAdd(counts, 1);
 
             // and set the col mask to true at this col
-            col_masks[col] = true
+            atomicExch(col_masks + col, 1);
 
         }
 
@@ -497,32 +497,21 @@ struct HungarianFunctor<GPUDevice, T> {
 
             // update the solution
             switch ( state ) {
-
-            // step is always 2
             case 1:
                 step1(state, size, masks, row_masks, col_masks, square_costs);
                 break;
-
-            // step is always either 0 or 3
             case 2:
                 step2(state, size, masks, row_masks, col_masks, square_costs);
                 break;
-
-            // step in [3, 4, 5]
             case 3:
                 step3(state, size, masks, row_masks, col_masks, square_costs);
                 break;
-
-            // step is always 2
             case 4:
                 step4(state, size, masks, row_masks, col_masks, square_costs);
                 break;
-
-            // step is always 3
             case 5:
                 step5(state, size, masks, row_masks, col_masks, square_costs);
                 break;
-
             }
 
         }
