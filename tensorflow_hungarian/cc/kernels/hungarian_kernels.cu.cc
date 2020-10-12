@@ -33,7 +33,7 @@ template <typename T>
 struct HungarianFunctor<GPUDevice, T> {
 
     void operator()(const OpKernelContext* context,
-                    const CPUDevice& d,
+                    const GPUDevice& d,
                     const int batch_size,
                     const int size_n,
                     const int size_m,
