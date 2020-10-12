@@ -43,9 +43,9 @@ struct HungarianFunctor<CPUDevice, T> {
 
     void operator()(const OpKernelContext* context,
                     const CPUDevice& d,
-                    const int batch_size,
-                    const int size_n,
-                    const int size_m,
+                    int batch_size,
+                    int size_n,
+                    int size_m,
                     const T* costs,
                     T* assignments) {
 
@@ -120,8 +120,8 @@ class HungarianOp : public OpKernel {
             static_cast<int>(shape[0]),
             static_cast<int>(shape[1]),
             static_cast<int>(shape[2]),
-            costs.tensor<T, 3>().data(),
-            assignments->matrix<int>().data());
+            costs.flat<T>().data(),
+            assignments->flat<int>().data());
 
     }
 
@@ -132,7 +132,6 @@ class HungarianOp : public OpKernel {
   REGISTER_KERNEL_BUILDER(                                         \
       Name("Hungarian").Device(DEVICE_CPU).TypeConstraint<T>("T"), \
       HungarianOp<CPUDevice, T>);
-
 REGISTER_CPU(float);
 REGISTER_CPU(int32);
 
@@ -143,7 +142,6 @@ REGISTER_CPU(int32);
   REGISTER_KERNEL_BUILDER(                                         \
       Name("Hungarian").Device(DEVICE_GPU).TypeConstraint<T>("T"), \
       HungarianOp<GPUDevice, T>);
-
 REGISTER_GPU(float);
 REGISTER_GPU(int32);
 #endif  // GOOGLE_CUDA

@@ -10,9 +10,9 @@ template <typename Device, typename T>
 struct HungarianFunctor {
   void operator()(const OpKernelContext* context,
                   const Device& d,
-                  const int batch_size,
-                  const int size_n,
-                  const int size_m,
+                  int batch_size,
+                  int size_n,
+                  int size_m,
                   const T* in,
                   T* out);
 };

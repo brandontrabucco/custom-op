@@ -34,9 +34,9 @@ struct HungarianFunctor<GPUDevice, T> {
 
     void operator()(const OpKernelContext* context,
                     const GPUDevice& d,
-                    const int batch_size,
-                    const int size_n,
-                    const int size_m,
+                    int batch_size,
+                    int size_n,
+                    int size_m,
                     const T* costs,
                     T* assignments) {
 
