@@ -18,6 +18,8 @@ limitations under the License.
 #endif  // GOOGLE_CUDA
 
 #include "hungarian.h"
+#include "tensorflow/core/framework/op.h"
+#include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/shape_inference.h"
 #include "tensorflow/core/util/work_sharder.h"
 
@@ -39,53 +41,23 @@ namespace functor {
 template <typename T>
 struct HungarianFunctor<CPUDevice, T> {
 
-    void operator()(const OpKernelContext* context,
-                    const CPUDevice& d,
-                    int32 batch_size,
-                    int32 size_n,
-                    int32 size_m,
+    void operator()(const CPUDevice& d,
+                    const int32 size_n,
+                    const int32 size_m,
                     const T* costs,
                     int32* assignments) {
 
-        // implementation of the hungarian algorithm in c++
-        auto shard_function = [&batch_size,
-                               &size_n,
-                               &size_m,
-                               &costs,
-                               &assignments](int64 start, int64 limit) {
-
-            // batch-wise sharded function
-            for (int64 batch = start; batch < limit; ++batch) {
-
-                // pass
-
-            }
-
-        };
-
-        // get a handle to the cpu device threads
-        auto pool = context->device()->tensorflow_cpu_worker_threads();
-
-        // computational cost of generating a single kernel operation
-        const int64 op_cost = 10000 * size_n * size_n * size_m;
-
-        // launch a sharded batch function on the cpu
-        Shard(pool->num_threads,
-              pool->workers,
-              batch_size,
-              op_cost,
-              shard_function);
+        // pass
 
     }
 
 };
 
 // OpKernel definition.
-// template parameter <T> is the datatype of the tensors.
 template <typename Device, typename T>
 class HungarianOp : public OpKernel {
 
-    public:
+  public:
 
     explicit HungarianOp(OpKernelConstruction* context) : OpKernel(context) {}
 
@@ -111,15 +83,46 @@ class HungarianOp : public OpKernel {
         OP_REQUIRES(context, costs.NumElements() <= tensorflow::kint32max,
                     errors::InvalidArgument("Too many elements in tensor"));
 
-        // launch the device generalized operation functor
-        HungarianFunctor<Device, T>()(
-            context,
-            context->eigen_device<Device>(),
-            static_cast<int32>(shape[0]),
-            static_cast<int32>(shape[1]),
-            static_cast<int32>(shape[2]),
-            costs.flat<T>().data(),
-            assignments->flat<int32>().data());
+        // prepare shared variables for each shard
+        const auto device = context->eigen_device<Device>();
+        const int32 batch_size = static_cast<int32>(shape[0]);
+        const int32 size_n = static_cast<int32>(shape[1]);
+        const int32 size_m = static_cast<int32>(shape[2]);
+        const T* costs = costs.flat<T>().data();
+        T* assignments = assignments->flat<int32>().data();
+
+        // implementation of the hungarian algorithm in c++
+        auto sharded_function = [
+                &device,
+                &size_n,
+                &size_m,
+                &costs,
+                &assignments](int64 start, int64 limit) {
+
+            // batch-wise sharded function
+            for (int64 i = start; i < limit; i++) {
+
+                // launch the device generalized operation functor
+                HungarianFunctor<Device, T>()(
+                    device,
+                    size_n,
+                    size_m, // below we view into costs and assignments
+                    costs + i * size_n * size_m,
+                    assignments + i * size_n);
+
+            }
+
+        };
+
+        // get a handle to the cpu device threads
+        auto pool = context->device()->tensorflow_cpu_worker_threads();
+
+        // computational cost of generating a single kernel operation
+        const int64 op_cost = 10000 * size_n * size_n * size_m;
+
+        // launch a sharded batch function
+        Shard(pool->num_threads, pool->workers,
+              batch_size, op_cost, sharded_function);
 
     }
 

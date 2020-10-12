@@ -18,6 +18,8 @@ limitations under the License.
 #define EIGEN_USE_GPU
 
 #include "hungarian.h"
+#include "tensorflow/core/framework/op.h"
+#include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/shape_inference.h"
 #include "tensorflow/core/util/gpu_kernel_helper.h"
 #include "cublas_v2.h"
@@ -30,16 +32,15 @@ namespace functor {
 typedef Eigen::GpuDevice GPUDevice;
 
 template <typename T>
-__global__ void resize(int32 batch_size,
-                       int32 size_n,
-                       int32 size_m,
-                       int32 size,
+__global__ void resize(const int32 size_n,
+                       const int32 size_m,
+                       const int32 size,
                        int32* device_max,
                        const T* costs,
                        T* square_costs) {
 
     // calculate the maximum number of thread calls to make
-    int32 n = batch_size * size * size;
+    int32 n = size * size;
 
     // run each thread at least once
     for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -48,24 +49,20 @@ __global__ void resize(int32 batch_size,
         // calculate the position in the destination tensor
         int32 col = i % size;
         int32 row = (i / size) % size;
-        int32 batch = i / (size * size);
 
         // if the position represents a padded cell
-        if (batch < batch_size
-                && (row >= size_n || col >= size_m)
-                && NULL != device_max) {
+        if ((row >= size_n || col >= size_m) && NULL != device_max) {
 
             // copy the max value of that row
-            square_costs[i] = costs[device_max[batch]];
+            square_costs[i] = costs[device_max[0]];
 
         }
 
         // if the position represents a cell to copy
-        else if (batch < batch_size) {
+        else {
 
             // calculate the position in the source tensor and copy
-            pos = col + row * size_m + batch * size_m * size_n
-            square_costs[i] = costs[pos];
+            square_costs[i] = costs[col + row * size_m];
 
         }
 
@@ -74,15 +71,11 @@ __global__ void resize(int32 batch_size,
 }
 
 template <typename T>
-__global__ void replace_infinities(int32 batch_size,
-                                   int32 size,
+__global__ void replace_infinities(const int32 size,
                                    int32* device_max,
                                    T infinity,
                                    const T* costs,
                                    T* square_costs) {
-
-    // calculate the maximum number of thread calls to make
-    int32 n = batch_size * size * size;
 
     // this case only occurs when all values are infinite.
     if (max == infinity) {
@@ -94,16 +87,16 @@ __global__ void replace_infinities(int32 batch_size,
         max++;
     }
 
+    // calculate the maximum number of thread calls to make
+    int32 n = size * size;
+
     // run each thread at least once
     for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
             i < n; i += blockDim.x * gridDim.x) {
 
-        // calculate the position in the destination tensor
-        int32 batch = i / (size * size);
-
         // replace the matrix entries that are infinity
         if (infinity == square_costs[i]) {
-            square_costs[i] = costs[device_max[batch]];
+            square_costs[i] = costs[device_max[0]];
         }
 
     }
@@ -111,14 +104,13 @@ __global__ void replace_infinities(int32 batch_size,
 }
 
 template <typename T>
-__global__ void minimize_along_direction(int32 batch_size,
-                                         int32 size,
+__global__ void minimize_along_direction(const int32 size,
                                          int32* device_min,
                                          bool cols_fixed,
                                          T* square_costs) {
 
     // calculate the maximum number of thread calls to make
-    int32 n = batch_size * size * size;
+    int32 n = size * size;
 
     // run each thread at least once
     for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -127,10 +119,9 @@ __global__ void minimize_along_direction(int32 batch_size,
         // calculate the position in the destination tensor
         int32 col = i % size;
         int32 row = (i / size) % size;
-        int32 batch = i / (size * size);
 
         // determine how to index into pos: are rows or columns fixed
-        int32 pos = batch * size + (cols_fixed ? row : col);
+        int32 pos = cols_fixed ? row : col;
 
         // replace the matrix entries that are infinity
         if (0 < device_min[pos]) {
@@ -146,14 +137,13 @@ static constexpr int STAR   = 1;
 static constexpr int PRIME  = 2;
 
 template <typename T>
-__global__ void star_mask(int32 batch_size,
-                          int32 size,
+__global__ void star_mask(const int32 size,
                           int32* masks,
                           int32* masks_buffer,
                           T* square_costs) {
 
     // calculate the maximum number of thread calls to make
-    int32 n = batch_size * size * size;
+    int32 n = size * size;
 
     // run each thread at least once
     for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -162,7 +152,6 @@ __global__ void star_mask(int32 batch_size,
         // calculate the position in the destination tensor
         int32 col = i % size;
         int32 row = (i / size) % size;
-        int32 batch = i / (size * size);
 
         // value to assign to this location in masks
         masks_buffer[i] = (square_costs[i] == 0) ? STAR : masks[i];
@@ -174,7 +163,7 @@ __global__ void star_mask(int32 batch_size,
         for (int32 j = 0; j < row; j++) {
 
             // calculate the position of that element
-            int32 pos = col + (j) * size + batch * size * size;
+            int32 pos = col + (j) * size;
 
             // if there is a STAR then deactivate this cell
             if (masks_buffer[pos] == STAR) masks_buffer[i] = masks[i];
@@ -191,7 +180,7 @@ __global__ void star_mask(int32 batch_size,
         for (int32 j = 0; j < col; j++) {
 
             // calculate the position of that element
-            int32 pos = (j) + row * size + batch * size * size;
+            int32 pos = (j) + row * size;
 
             // if there is a STAR then deactivate this cell
             if (masks_buffer[pos] == STAR) masks_buffer[i] = masks[i];
@@ -206,8 +195,7 @@ __global__ void star_mask(int32 batch_size,
 }
 
 void step1(int32* states,
-           int32 batch_size,
-           int32 size,
+           const int32 size,
            int32* masks,
            bool* row_masks,
            bool* col_masks,
@@ -215,11 +203,10 @@ void step1(int32* states,
 
     // allocate memory for a square costs matrix
     int32* masks_buffer;
-    cudaMalloc((void**)&masks_buffer, sizeof(int32) * batch_size * size * size);
+    cudaMalloc((void**)&masks_buffer, sizeof(int32) * size * size);
 
     // fill the resized matrix with the original matrix values
-    star_mask<T><<<32, 256>>>(batch_size,
-                              size,
+    star_mask<T><<<32, 256>>>(size,
                               masks,
                               masks_buffer,
                               square_costs);
@@ -231,20 +218,18 @@ void step1(int32* states,
     cudaFree(masks_buffer);
 
     // determine which states to move to if not finished
-    for (int i = 0; i < batch_size; i++)
-        states[i] = (states[i] == 0) ? 0 : 2;
+    states[0] = (states[0] == 0) ? 0 : 2;
 
 }
 
 template <typename T>
-__global__ void count_mask(int32 batch_size,
-                           int32 size,
+__global__ void count_mask(int32 size,
                            int32* masks,
                            bool* col_masks,
                            int32* counts) {
 
     // calculate the maximum number of thread calls to make
-    int32 n = batch_size * size * size;
+    int32 n = size * size;
 
     // run each thread at least once
     for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -252,13 +237,12 @@ __global__ void count_mask(int32 batch_size,
 
         // calculate the position in the destination tensor
         int32 col = i % size;
-        int32 batch = i / (size * size);
 
         // active when an entry in masks is STAR
         if (masks[i] == STAR) {
 
             // increment the cover count variable
-            atomicAdd(counts + batch, 1);
+            atomicAdd(counts, 1);
 
             // and set the col mask to true at this col
             col_masks[col] = true
@@ -270,8 +254,7 @@ __global__ void count_mask(int32 batch_size,
 }
 
 void step2(int32* states,
-           int32 batch_size,
-           int32 size,
+           const int32 size,
            int32* masks,
            bool* row_masks,
            bool* col_masks,
@@ -279,11 +262,10 @@ void step2(int32* states,
 
     // allocate memory for a square costs matrix
     int32* counts;
-    cudaMalloc((void**)&counts, sizeof(int32) * batch_size);
+    cudaMalloc((void**)&counts, sizeof(int32));
 
     // fill the resized matrix with the original matrix values
-    count_mask<T><<<32, 256>>>(batch_size,
-                               size,
+    count_mask<T><<<32, 256>>>(size,
                                masks,
                                col_masks,
                                counts);
@@ -292,20 +274,19 @@ void step2(int32* states,
     cudaDeviceSynchronize();
 
     // malloc space on the heap for the cpu cover count
-    int32* counts_cpu = (int32*) malloc(sizeof(int32) * batch_size);
+    int32* counts_cpu = (int32*) malloc(sizeof(int32));
 
     // copy the cover count to cpu to control program flow
     cudaMemcpy(counts_cpu,
                counts,
-               sizeof(int32) * batch_size,
+               sizeof(int32),
                cudaMemcpyDeviceToHost);
 
     // remove the memory allocated for calculating the buffer
     cudaFree(count);
 
     // determine which states to move to if not finished
-    for (int i = 0; i < batch_size; i++)
-        states[i] = (states[i] == 0) ? 0 : (counts_cpu[i] >= size) ? 0 : 3;
+    states[0] = (states[0] == 0) ? 0 : (counts_cpu[0] >= size) ? 0 : 3;
 
     // remove the memory allocated for counts
     free(counts_cpu);
@@ -313,8 +294,7 @@ void step2(int32* states,
 }
 
 void step3(int32* states,
-           int32 batch_size,
-           int32 size,
+           const int32 size,
            int32* masks,
            bool* row_masks,
            bool* col_masks,
@@ -325,8 +305,7 @@ void step3(int32* states,
 }
 
 void step4(int32* states,
-           int32 batch_size,
-           int32 size,
+           const int32 size,
            int32* masks,
            bool* row_masks,
            bool* col_masks,
@@ -337,7 +316,6 @@ void step4(int32* states,
 }
 
 void step5(int32* states,
-           int32 batch_size,
            int32 size,
            int32* masks,
            bool* row_masks,
@@ -352,11 +330,9 @@ void step5(int32* states,
 template <typename T>
 struct HungarianFunctor<GPUDevice, T> {
 
-    void operator()(const OpKernelContext* context,
-                    const GPUDevice& d,
-                    int32 batch_size,
-                    int32 size_n,
-                    int32 size_m,
+    void operator()(const GPUDevice& d,
+                    const int32 size_n,
+                    const int32 size_m,
                     const T* costs,
                     int32* assignments) {
 
@@ -379,26 +355,23 @@ struct HungarianFunctor<GPUDevice, T> {
         int32* device_max;
 
         // allocate space for the batch-wise max on the GPU
-        cudaMalloc((void**)&device_max, sizeof(int32) * batch_size);
+        cudaMalloc((void**)&device_max, sizeof(int32));
 
         // the size of each batch-wise matrix in costs
         int32 n = size_n * size_m;
 
         // launch several parallel max operations
-        for (int32 i = 0; i < batch_size; i++) {
-            cublasIsamax(handle, n, costs + n * i, 1, device_max + i);
-        }
+        cublasIsamax(handle, n, costs, 1, device_max + i);
 
         // allow for every parallel operation on the GPU to finish
         cudaDeviceSynchronize();
 
         // allocate memory for a square costs matrix
         T* square_costs;
-        cudaMalloc((void**)&square_costs, sizeof(T) * batch_size * size * size);
+        cudaMalloc((void**)&square_costs, sizeof(T) * size * size);
 
         // fill the resized matrix with the original matrix values
-        resize<T><<<32, 256>>>(batch_size,
-                               size_n,
+        resize<T><<<32, 256>>>(size_n,
                                size_m,
                                size,
                                device_max,
@@ -420,8 +393,7 @@ struct HungarianFunctor<GPUDevice, T> {
         const T infinity = std::numeric_limits<T>::infinity();
 
         // replace all infinities with the max value in the matrix
-        replace_infinities<T><<<32, 256>>>(batch_size,
-                                           size,
+        replace_infinities<T><<<32, 256>>>(size,
                                            device_max,
                                            costs,
                                            infinity,
@@ -445,32 +417,29 @@ struct HungarianFunctor<GPUDevice, T> {
         int32* device_min;
 
         // allocate space for the batch-wise max on the GPU
-        cudaMalloc((void**)&device_min, sizeof(int32) * batch_size * size);
+        cudaMalloc((void**)&device_min, sizeof(int32) * size);
 
         bool cols_fixed = size_n >= size_m;
 
         // launch several parallel min operations
-        for (int32 i = 0; i < batch_size; i++) {
-            for (int32 j = 0; j < size; j++) {
+        for (int32 j = 0; j < size; j++) {
 
-                // stride iterates over rows when cols_fixed is true
-                // and over cols when cols_fixed is false
-                cublasIsamin(
-                    handle,
-                    size,
-                    square_costs + size * size * i + (cols_fixed ? 1 : size) * j,
-                    cols_fixed ? size : 1, // how many cells apart is the next element
-                    device_min + i * size + j);
+            // stride iterates over rows when cols_fixed is true
+            // and over cols when cols_fixed is false
+            cublasIsamin(
+                handle,
+                size,
+                square_costs + (cols_fixed ? 1 : size) * j,
+                cols_fixed ? size : 1, // how many cells apart is the next element
+                device_min + i * size + j);
 
-            }
         }
 
         // allow for every parallel operation on the GPU to finish
         cudaDeviceSynchronize();
 
         // replace all infinities with the max value in the matrix
-        minimize_along_direction<T><<<32, 256>>>(batch_size,
-                                                 size,
+        minimize_along_direction<T><<<32, 256>>>(size,
                                                  device_min,
                                                  cols_fixed,
                                                  square_costs);
@@ -482,27 +451,24 @@ struct HungarianFunctor<GPUDevice, T> {
         cols_fixed = !cols_fixed;
 
         // launch several parallel min operations
-        for (int32 i = 0; i < batch_size; i++) {
-            for (int32 j = 0; j < size; j++) {
+        for (int32 j = 0; j < size; j++) {
 
-                // stride iterates over rows when cols_fixed is true
-                // and over cols when cols_fixed is false
-                cublasIsamin(
-                    handle,
-                    size,
-                    square_costs + size * size * i + (cols_fixed ? 1 : size) * j,
-                    cols_fixed ? size : 1, // how many cells apart is the next element
-                    device_min + i * size + j);
+            // stride iterates over rows when cols_fixed is true
+            // and over cols when cols_fixed is false
+            cublasIsamin(
+                handle,
+                size,
+                square_costs + (cols_fixed ? 1 : size) * j,
+                cols_fixed ? size : 1, // how many cells apart is the next element
+                device_min + i * size + j);
 
-            }
         }
 
         // allow for every parallel operation on the GPU to finish
         cudaDeviceSynchronize();
 
         // replace all infinities with the max value in the matrix
-        minimize_along_direction<T><<<32, 256>>>(batch_size,
-                                                 size,
+        minimize_along_direction<T><<<32, 256>>>(size,
                                                  device_min,
                                                  cols_fixed,
                                                  square_costs);
@@ -523,22 +489,22 @@ struct HungarianFunctor<GPUDevice, T> {
 
         // allocate space for several mask tensors
         int32* masks;
-        cudaMalloc((void**)&masks, sizeof(int32) * batch_size * size * size);
-        cudaMemset(masks, 0x0, sizeof(int32) * batch_size * size * size);
+        cudaMalloc((void**)&masks, sizeof(int32) * size * size);
+        cudaMemset(masks, 0x0, sizeof(int32) * size * size);
 
         // allocate space for several mask tensors and set to zero
         bool* row_masks;
-        cudaMalloc((void**)&row_masks, sizeof(bool) * batch_size * size);
-        cudaMemset(row_masks, 0x0, sizeof(bool) * batch_size * size);
+        cudaMalloc((void**)&row_masks, sizeof(bool) * size);
+        cudaMemset(row_masks, 0x0, sizeof(bool) * size);
 
         // allocate space for several mask tensors and set to zero
         bool* col_masks;
-        cudaMalloc((void**)&col_masks, sizeof(bool) * batch_size * size);
-        cudaMemset(col_masks, 0x0, sizeof(bool) * batch_size * size);
+        cudaMalloc((void**)&col_masks, sizeof(bool) * size);
+        cudaMemset(col_masks, 0x0, sizeof(bool) * size);
 
         // allocate space for a loop state variable
-        int32* states = (int32*) malloc(batch_size * sizeof(int32));
-        memset(states, 0x1, batch_size * sizeof(int32));
+        int32* states = (int32*) malloc(sizeof(int32));
+        memset(states, 0x1, sizeof(int32));
 
         /*
          *
@@ -550,14 +516,9 @@ struct HungarianFunctor<GPUDevice, T> {
 
         do {
 
+            // update the solution
 
-
-            // determine if all batch elements are done
-            done = true;
-            for (int i = 0; i < batch_size; i++)
-                if (states[i] != 0) done = false;
-
-        } while (!done);
+        } while (states[i] != 0);
 
         // free the state variable once all batch elements are done
         free(states);
