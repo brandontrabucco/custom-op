@@ -16,7 +16,12 @@ limitations under the License.
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/shape_inference.h"
 
+using std::vector;
 using namespace tensorflow;
+using shape_inference::Shape;
+using shape_inference::Dimension;
+using shape_inference::DimensionHandle;
+using shape_inference::ShapeHandle;
 
 // Shape of output is the first K - 1 dims of input with K dims
 REGISTER_OP("Hungarian")
