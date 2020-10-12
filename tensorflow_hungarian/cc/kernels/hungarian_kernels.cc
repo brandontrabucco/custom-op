@@ -43,11 +43,11 @@ struct HungarianFunctor<CPUDevice, T> {
 
     void operator()(const OpKernelContext* context,
                     const CPUDevice& d,
-                    int batch_size,
-                    int size_n,
-                    int size_m,
+                    int32 batch_size,
+                    int32 size_n,
+                    int32 size_m,
                     const T* costs,
-                    T* assignments) {
+                    int32* assignments) {
 
         // implementation of the hungarian algorithm in c++
         auto shard_function = [&batch_size,
@@ -57,7 +57,7 @@ struct HungarianFunctor<CPUDevice, T> {
                                &assignments](int64 start, int64 limit) {
 
             // batch-wise sharded function
-            for (int batch = start; batch < limit; ++batch) {
+            for (int64 batch = start; batch < limit; ++batch) {
 
                 // pass
 
@@ -117,11 +117,11 @@ class HungarianOp : public OpKernel {
         HungarianFunctor<Device, T>()(
             context,
             context->eigen_device<Device>(),
-            static_cast<int>(shape[0]),
-            static_cast<int>(shape[1]),
-            static_cast<int>(shape[2]),
+            static_cast<int32>(shape[0]),
+            static_cast<int32>(shape[1]),
+            static_cast<int32>(shape[2]),
             costs.flat<T>().data(),
-            assignments->flat<int>().data());
+            assignments->flat<int32>().data());
 
     }
 

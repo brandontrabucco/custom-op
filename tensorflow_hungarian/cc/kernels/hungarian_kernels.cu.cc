@@ -34,11 +34,11 @@ struct HungarianFunctor<GPUDevice, T> {
 
     void operator()(const OpKernelContext* context,
                     const GPUDevice& d,
-                    int batch_size,
-                    int size_n,
-                    int size_m,
+                    int32 batch_size,
+                    int32 size_n,
+                    int32 size_m,
                     const T* costs,
-                    T* assignments) {
+                    int32* assignments) {
 
         // implementation of the hungarian algorithm in cuda
 
