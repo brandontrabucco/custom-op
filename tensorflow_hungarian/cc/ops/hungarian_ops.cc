@@ -18,11 +18,31 @@ limitations under the License.
 
 using namespace tensorflow;
 
-REGISTER_OP("TimeTwo")
+// Shape of output is the first K - 1 dims of input with K dims
+REGISTER_OP("Hungarian")
     .Attr("T: {int32, float}")
-    .Input("in: T")
-    .Output("out: T")
+    .Input("costs: T")
+    .Output("assignments: int32")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
-      c->set_output(0, c->input(0));
-      return Status::OK();
+        // access the input to the operation
+        ShapeHandle input = c->input(0);
+
+        // if the input has an unknown shape so does the op
+        if (!c->RankKnown(input)) {
+            c->set_output(0, c->UnknownShape());
+            return Status::OK();
+        }
+
+        // otherwise, get the rank of the input tensor
+        const int32 input_rank = c->Rank(input);
+
+        // then, get the first input_rank - 1 dimensions of the rank
+        std::vector<DimensionHandle> dims;
+        for (int i = 0; i < input_rank - 1; ++i) {
+            dims.emplace_back(c->Dim(input, i));
+        }
+
+        // and set the output shape to the those dimensions
+        c->set_output(0, c->MakeShape(dims));
+        return Status::OK();
     });

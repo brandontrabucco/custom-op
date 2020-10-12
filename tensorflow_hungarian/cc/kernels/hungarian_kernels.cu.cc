@@ -17,7 +17,10 @@ limitations under the License.
 
 #define EIGEN_USE_GPU
 
-#include "time_two.h"
+#include "hungarian.h"
+#include "tensorflow/core/framework/op.h"
+#include "tensorflow/core/framework/op_kernel.h"
+#include "tensorflow/core/framework/shape_inference.h"
 #include "tensorflow/core/util/gpu_kernel_helper.h"
 
 namespace tensorflow {
@@ -25,33 +28,27 @@ namespace functor {
 
 typedef Eigen::GpuDevice GPUDevice;
 
-// Define the CUDA kernel.
-template <typename T>
-__global__ void TimeTwoCudaKernel(const int size, const T* in, T* out) {
-  for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < size;
-       i += blockDim.x * gridDim.x) {
-    out[i] = 2 * ldg(in + i);
-  }
-}
-
 // Define the GPU implementation that launches the CUDA kernel.
 template <typename T>
-struct TimeTwoFunctor<GPUDevice, T> {
-  void operator()(const GPUDevice& d, int size, const T* in, T* out) {
-    // Launch the cuda kernel.
-    //
-    // See core/util/cuda_kernel_helper.h for example of computing
-    // block count and thread_per_block count.
-    int block_count = 1024;
-    int thread_per_block = 20;
-    TimeTwoCudaKernel<T>
-        <<<block_count, thread_per_block, 0, d.stream()>>>(size, in, out);
-  }
+struct HungarianFunctor<GPUDevice, T> {
+
+    void operator()(const OpKernelContext* context,
+                    const CPUDevice& d,
+                    const int batch_size,
+                    const int size_n,
+                    const int size_m,
+                    const T* costs,
+                    T* assignments) {
+
+        // implementation of the hungarian algorithm in cuda
+
+    }
+
 };
 
 // Explicitly instantiate functors for the types of OpKernels registered.
-template struct TimeTwoFunctor<GPUDevice, float>;
-template struct TimeTwoFunctor<GPUDevice, int32>;
+template struct HungarianFunctor<GPUDevice, float>;
+template struct HungarianFunctor<GPUDevice, int32>;
 }  // end namespace functor
 }  // end namespace tensorflow
 

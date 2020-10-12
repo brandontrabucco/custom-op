@@ -16,4 +16,4 @@
 
 from __future__ import absolute_import
 
-from tensorflow_hungarian.python.ops.hungarian_ops import hungarian
+from tensorflow_time_two.python.ops.time_two_ops import time_two
