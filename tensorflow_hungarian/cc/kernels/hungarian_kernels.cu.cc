@@ -141,6 +141,93 @@ __global__ void minimize_along_direction(int32 batch_size,
 
 }
 
+static constexpr int NORMAL = 0;
+static constexpr int STAR   = 1;
+static constexpr int PRIME  = 2;
+
+template <typename T>
+__global__ void star_mask(int32 batch_size,
+                          int32 size,
+                          int32* masks,
+                          int32* masks_buffer,
+                          T* square_costs) {
+
+    // calculate the maximum number of thread calls to make
+    int32 n = batch_size * size * size;
+
+    // run each thread at least once
+    for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
+            i < n; i += blockDim.x * gridDim.x) {
+
+        // calculate the position in the destination tensor
+        int32 col = i % size;
+        int32 row = (i / size) % size;
+        int32 batch = i / (size * size);
+
+        // value to assign to this location in masks
+        masks_buffer[i] = (square_costs[i] == 0) ? STAR : masks[i];
+
+        // wait until all threads have gotten this far
+        __syncthreads();
+
+        // look at the preceding cols and check if STAR is present
+        for (int32 j = 0; j < col; j++) {
+
+            // calculate the position of that element
+            int32 pos = (j) + row * size + batch * size * size;
+
+            // if there is a STAR then deactivate this cell
+            if (masks_buffer[pos] == STAR) masks_buffer[i] = masks[i];
+
+        }
+
+        // look at the preceding rows and check if STAR is present
+        for (int32 j = 0; j < row; j++) {
+
+            // calculate the position of that element
+            int32 pos = col + (j) * size + batch * size * size;
+
+            // if there is a STAR then deactivate this cell
+            if (masks_buffer[pos] == STAR) masks_buffer[i] = masks[i];
+
+        }
+
+        // we are in the clear and we can assign the mask value
+        masks[i] = masks_buffer[i];
+
+    }
+
+}
+
+int step1(int32 batch_size,
+          int32 size,
+          int32* masks,
+          bool* row_masks,
+          bool* col_masks,
+          T* square_costs) {
+
+    // allocate memory for a square costs matrix
+    int32* masks_buffer;
+    cudaMalloc((void**)&masks_buffer, sizeof(int32) * batch_size * size * size);
+
+    // fill the resized matrix with the original matrix values
+    star_mask<T><<<32, 256>>>(batch_size,
+                              size,
+                              masks,
+                              masks_buffer,
+                              square_costs);
+
+    // allow for every parallel operation on the GPU to finish
+    cudaDeviceSynchronize();
+
+    // remove the memory allocated for calculating the buffer
+    cudaFree(masks_buffer);
+
+    // proceed to the second step of the hungarian algorithm
+    return 2;
+
+}
+
 // Define the GPU implementation that launches the CUDA kernel.
 template <typename T>
 struct HungarianFunctor<GPUDevice, T> {
@@ -303,7 +390,7 @@ struct HungarianFunctor<GPUDevice, T> {
         // allow for every parallel operation on the GPU to finish
         cudaDeviceSynchronize();
 
-        // remove the memory allocated for calculating the max
+        // remove the memory allocated for calculating the min
         cudaFree(device_min);
 
         /*
