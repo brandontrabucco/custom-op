@@ -18,8 +18,6 @@ limitations under the License.
 #endif  // GOOGLE_CUDA
 
 #include "hungarian.h"
-#include "tensorflow/core/framework/op.h"
-#include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/shape_inference.h"
 #include "tensorflow/core/util/work_sharder.h"
 
@@ -69,7 +67,7 @@ struct HungarianFunctor<CPUDevice, T> {
         auto pool = context->device()->tensorflow_cpu_worker_threads();
 
         // computational cost of generating a single kernel operation
-        const int64 op_cost = 10000 * size_n * size_n * size_m
+        const int64 op_cost = 10000 * size_n * size_n * size_m;
 
         // launch a sharded batch function on the cpu
         Shard(pool->num_threads,
