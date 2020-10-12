@@ -57,7 +57,7 @@ struct HungarianFunctor<CPUDevice, T> {
 template <typename Device, typename T>
 class HungarianOp : public OpKernel {
 
-  public:
+public:
 
     explicit HungarianOp(OpKernelConstruction* context) : OpKernel(context) {}
 

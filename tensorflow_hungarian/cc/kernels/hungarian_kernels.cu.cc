@@ -194,7 +194,7 @@ __global__ void star_mask(const int32 size,
 
 }
 
-void step1(int32* states,
+void step1(int32& state,
            const int32 size,
            int32* masks,
            bool* row_masks,
@@ -206,10 +206,8 @@ void step1(int32* states,
     cudaMalloc((void**)&masks_buffer, sizeof(int32) * size * size);
 
     // fill the resized matrix with the original matrix values
-    star_mask<T><<<32, 256>>>(size,
-                              masks,
-                              masks_buffer,
-                              square_costs);
+    star_mask<T><<<32, 256>>>(
+        size, masks, masks_buffer, square_costs);
 
     // allow for every parallel operation on the GPU to finish
     cudaDeviceSynchronize();
@@ -217,8 +215,8 @@ void step1(int32* states,
     // remove the memory allocated for calculating the buffer
     cudaFree(masks_buffer);
 
-    // determine which states to move to if not finished
-    states[0] = (states[0] == 0) ? 0 : 2;
+    // determine which state to move to if not finished
+    *state = (*state == 0) ? 0 : 2;
 
 }
 
@@ -253,47 +251,40 @@ __global__ void count_mask(int32 size,
 
 }
 
-void step2(int32* states,
+void step2(int32& state,
            const int32 size,
            int32* masks,
            bool* row_masks,
            bool* col_masks,
            T* square_costs) {
 
-    // allocate memory for a square costs matrix
+    // allocate memory for a the cover counts on the gpu
     int32* counts;
     cudaMalloc((void**)&counts, sizeof(int32));
 
     // fill the resized matrix with the original matrix values
-    count_mask<T><<<32, 256>>>(size,
-                               masks,
-                               col_masks,
-                               counts);
+    count_mask<T><<<32, 256>>>(
+        size, masks, col_masks, counts);
 
     // allow for every parallel operation on the GPU to finish
     cudaDeviceSynchronize();
 
     // malloc space on the heap for the cpu cover count
-    int32* counts_cpu = (int32*) malloc(sizeof(int32));
+    int32 counts_cpu = 0;
 
     // copy the cover count to cpu to control program flow
-    cudaMemcpy(counts_cpu,
-               counts,
-               sizeof(int32),
-               cudaMemcpyDeviceToHost);
+    cudaMemcpy(
+        &counts_cpu, counts, sizeof(int32), cudaMemcpyDeviceToHost);
 
     // remove the memory allocated for calculating the buffer
     cudaFree(count);
 
-    // determine which states to move to if not finished
-    states[0] = (states[0] == 0) ? 0 : (counts_cpu[0] >= size) ? 0 : 3;
-
-    // remove the memory allocated for counts
-    free(counts_cpu);
+    // determine which state to move to if not finished
+    *state = (*state == 0) ? 0 : (counts_cpu >= size) ? 0 : 3;
 
 }
 
-void step3(int32* states,
+void step3(int32& state,
            const int32 size,
            int32* masks,
            bool* row_masks,
@@ -304,7 +295,7 @@ void step3(int32* states,
 
 }
 
-void step4(int32* states,
+void step4(int32& state,
            const int32 size,
            int32* masks,
            bool* row_masks,
@@ -315,7 +306,7 @@ void step4(int32* states,
 
 }
 
-void step5(int32* states,
+void step5(int32& state,
            int32 size,
            int32* masks,
            bool* row_masks,
@@ -371,12 +362,8 @@ struct HungarianFunctor<GPUDevice, T> {
         cudaMalloc((void**)&square_costs, sizeof(T) * size * size);
 
         // fill the resized matrix with the original matrix values
-        resize<T><<<32, 256>>>(size_n,
-                               size_m,
-                               size,
-                               device_max,
-                               costs,
-                               square_costs);
+        resize<T><<<32, 256>>>(
+            size_n, size_m, size, device_max, costs, square_costs);
 
         // allow for every parallel operation on the GPU to finish
         cudaDeviceSynchronize();
@@ -393,11 +380,8 @@ struct HungarianFunctor<GPUDevice, T> {
         const T infinity = std::numeric_limits<T>::infinity();
 
         // replace all infinities with the max value in the matrix
-        replace_infinities<T><<<32, 256>>>(size,
-                                           device_max,
-                                           costs,
-                                           infinity,
-                                           square_costs);
+        replace_infinities<T><<<32, 256>>>(
+            size, device_max, costs, infinity, square_costs);
 
         // allow for every parallel operation on the GPU to finish
         cudaDeviceSynchronize();
@@ -430,7 +414,7 @@ struct HungarianFunctor<GPUDevice, T> {
                 handle,
                 size,
                 square_costs + (cols_fixed ? 1 : size) * j,
-                cols_fixed ? size : 1, // how many cells apart is the next element
+                cols_fixed ? size : 1,
                 device_min + i * size + j);
 
         }
@@ -439,10 +423,8 @@ struct HungarianFunctor<GPUDevice, T> {
         cudaDeviceSynchronize();
 
         // replace all infinities with the max value in the matrix
-        minimize_along_direction<T><<<32, 256>>>(size,
-                                                 device_min,
-                                                 cols_fixed,
-                                                 square_costs);
+        minimize_along_direction<T><<<32, 256>>>(
+            size, device_min, cols_fixed, square_costs);
 
         // allow for every parallel operation on the GPU to finish
         cudaDeviceSynchronize();
@@ -459,7 +441,7 @@ struct HungarianFunctor<GPUDevice, T> {
                 handle,
                 size,
                 square_costs + (cols_fixed ? 1 : size) * j,
-                cols_fixed ? size : 1, // how many cells apart is the next element
+                cols_fixed ? size : 1,
                 device_min + i * size + j);
 
         }
@@ -468,10 +450,8 @@ struct HungarianFunctor<GPUDevice, T> {
         cudaDeviceSynchronize();
 
         // replace all infinities with the max value in the matrix
-        minimize_along_direction<T><<<32, 256>>>(size,
-                                                 device_min,
-                                                 cols_fixed,
-                                                 square_costs);
+        minimize_along_direction<T><<<32, 256>>>(
+            size, device_min, cols_fixed, square_costs);
 
         // allow for every parallel operation on the GPU to finish
         cudaDeviceSynchronize();
@@ -503,8 +483,7 @@ struct HungarianFunctor<GPUDevice, T> {
         cudaMemset(col_masks, 0x0, sizeof(bool) * size);
 
         // allocate space for a loop state variable
-        int32* states = (int32*) malloc(sizeof(int32));
-        memset(states, 0x1, sizeof(int32));
+        int32 state = 1;
 
         /*
          *
@@ -514,14 +493,39 @@ struct HungarianFunctor<GPUDevice, T> {
          *
          */
 
-        do {
+        while (state != 0) {
 
             // update the solution
+            switch ( state ) {
 
-        } while (states[i] != 0);
+            // step is always 2
+            case 1:
+                step1(state, size, masks, row_masks, col_masks, square_costs);
+                break;
 
-        // free the state variable once all batch elements are done
-        free(states);
+            // step is always either 0 or 3
+            case 2:
+                step2(state, size, masks, row_masks, col_masks, square_costs);
+                break;
+
+            // step in [3, 4, 5]
+            case 3:
+                step3(state, size, masks, row_masks, col_masks, square_costs);
+                break;
+
+            // step is always 2
+            case 4:
+                step4(state, size, masks, row_masks, col_masks, square_costs);
+                break;
+
+            // step is always 3
+            case 5:
+                step5(state, size, masks, row_masks, col_masks, square_costs);
+                break;
+
+            }
+
+        }
 
         // remove the memory allocated for calculating the masks
         cudaFree(masks);
