@@ -170,22 +170,28 @@ __global__ void star_mask(int32 batch_size,
         // wait until all threads have gotten this far
         __syncthreads();
 
-        // look at the preceding cols and check if STAR is present
-        for (int32 j = 0; j < col; j++) {
-
-            // calculate the position of that element
-            int32 pos = (j) + row * size + batch * size * size;
-
-            // if there is a STAR then deactivate this cell
-            if (masks_buffer[pos] == STAR) masks_buffer[i] = masks[i];
-
-        }
-
         // look at the preceding rows and check if STAR is present
         for (int32 j = 0; j < row; j++) {
 
             // calculate the position of that element
             int32 pos = col + (j) * size + batch * size * size;
+
+            // if there is a STAR then deactivate this cell
+            if (masks_buffer[pos] == STAR) masks_buffer[i] = masks[i];
+
+            // if there is a STAR then deactivate this cell
+            if (masks[pos] == STAR) masks_buffer[i] = masks[i];
+
+        }
+
+        // wait until all threads have gotten this far
+        __syncthreads();
+
+        // look at the preceding cols and check if STAR is present
+        for (int32 j = 0; j < col; j++) {
+
+            // calculate the position of that element
+            int32 pos = (j) + row * size + batch * size * size;
 
             // if there is a STAR then deactivate this cell
             if (masks_buffer[pos] == STAR) masks_buffer[i] = masks[i];
@@ -199,12 +205,13 @@ __global__ void star_mask(int32 batch_size,
 
 }
 
-int step1(int32 batch_size,
-          int32 size,
-          int32* masks,
-          bool* row_masks,
-          bool* col_masks,
-          T* square_costs) {
+void step1(int32* states,
+           int32 batch_size,
+           int32 size,
+           int32* masks,
+           bool* row_masks,
+           bool* col_masks,
+           T* square_costs) {
 
     // allocate memory for a square costs matrix
     int32* masks_buffer;
@@ -223,8 +230,121 @@ int step1(int32 batch_size,
     // remove the memory allocated for calculating the buffer
     cudaFree(masks_buffer);
 
-    // proceed to the second step of the hungarian algorithm
-    return 2;
+    // determine which states to move to if not finished
+    for (int i = 0; i < batch_size; i++)
+        states[i] = (states[i] == 0) ? 0 : 2;
+
+}
+
+template <typename T>
+__global__ void count_mask(int32 batch_size,
+                           int32 size,
+                           int32* masks,
+                           bool* col_masks,
+                           int32* counts) {
+
+    // calculate the maximum number of thread calls to make
+    int32 n = batch_size * size * size;
+
+    // run each thread at least once
+    for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
+            i < n; i += blockDim.x * gridDim.x) {
+
+        // calculate the position in the destination tensor
+        int32 col = i % size;
+        int32 batch = i / (size * size);
+
+        // active when an entry in masks is STAR
+        if (masks[i] == STAR) {
+
+            // increment the cover count variable
+            atomicAdd(counts + batch, 1);
+
+            // and set the col mask to true at this col
+            col_masks[col] = true
+
+        }
+
+    }
+
+}
+
+void step2(int32* states,
+           int32 batch_size,
+           int32 size,
+           int32* masks,
+           bool* row_masks,
+           bool* col_masks,
+           T* square_costs) {
+
+    // allocate memory for a square costs matrix
+    int32* counts;
+    cudaMalloc((void**)&counts, sizeof(int32) * batch_size);
+
+    // fill the resized matrix with the original matrix values
+    count_mask<T><<<32, 256>>>(batch_size,
+                               size,
+                               masks,
+                               col_masks,
+                               counts);
+
+    // allow for every parallel operation on the GPU to finish
+    cudaDeviceSynchronize();
+
+    // malloc space on the heap for the cpu cover count
+    int32* counts_cpu = (int32*) malloc(sizeof(int32) * batch_size);
+
+    // copy the cover count to cpu to control program flow
+    cudaMemcpy(counts_cpu,
+               counts,
+               sizeof(int32) * batch_size,
+               cudaMemcpyDeviceToHost);
+
+    // remove the memory allocated for calculating the buffer
+    cudaFree(count);
+
+    // determine which states to move to if not finished
+    for (int i = 0; i < batch_size; i++)
+        states[i] = (states[i] == 0) ? 0 : (counts_cpu[i] >= size) ? 0 : 3;
+
+    // remove the memory allocated for counts
+    free(counts_cpu);
+
+}
+
+void step3(int32* states,
+           int32 batch_size,
+           int32 size,
+           int32* masks,
+           bool* row_masks,
+           bool* col_masks,
+           T* square_costs) {
+
+    // pass
+
+}
+
+void step4(int32* states,
+           int32 batch_size,
+           int32 size,
+           int32* masks,
+           bool* row_masks,
+           bool* col_masks,
+           T* square_costs) {
+
+    // pass
+
+}
+
+void step5(int32* states,
+           int32 batch_size,
+           int32 size,
+           int32* masks,
+           bool* row_masks,
+           bool* col_masks,
+           T* square_costs) {
+
+    // pass
 
 }
 
@@ -404,6 +524,7 @@ struct HungarianFunctor<GPUDevice, T> {
         // allocate space for several mask tensors
         int32* masks;
         cudaMalloc((void**)&masks, sizeof(int32) * batch_size * size * size);
+        cudaMemset(masks, 0x0, sizeof(int32) * batch_size * size * size);
 
         // allocate space for several mask tensors and set to zero
         bool* row_masks;
@@ -415,7 +536,40 @@ struct HungarianFunctor<GPUDevice, T> {
         cudaMalloc((void**)&col_masks, sizeof(bool) * batch_size * size);
         cudaMemset(col_masks, 0x0, sizeof(bool) * batch_size * size);
 
+        // allocate space for a loop state variable
+        int32* states = (int32*) malloc(batch_size * sizeof(int32));
+        memset(states, 0x1, batch_size * sizeof(int32));
 
+        /*
+         *
+         *
+         * UPDATE THE SOLUTION IN A LOOP
+         *
+         *
+         */
+
+        do {
+
+
+
+            // determine if all batch elements are done
+            done = true;
+            for (int i = 0; i < batch_size; i++)
+                if (states[i] != 0) done = false;
+
+        } while (!done);
+
+        // free the state variable once all batch elements are done
+        free(states);
+
+        // remove the memory allocated for calculating the masks
+        cudaFree(masks);
+
+        // remove the memory allocated for calculating the masks
+        cudaFree(row_masks);
+
+        // remove the memory allocated for calculating the masks
+        cudaFree(col_masks);
 
         // we are done to remove the library handle
         cublasDestroy(handle);
