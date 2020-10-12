@@ -62,12 +62,16 @@ class HungarianOpCPU : public OpKernel {
     const int batch_size = cost_shape[0];
     auto shard = [&costs, &cost_shape, &assignments_output](int64 start, int64 limit) {
       for (int n = start; n < limit; ++n) {
+
+
         Matrix<float> matrix(cost_shape[1], cost_shape[2]);
+
         for (int i = 0; i < cost_shape[1]; ++i) {
           for (int j = 0; j < cost_shape[2]; ++j) {
             matrix(i,j) =  costs(n, i, j);
           }
         }
+
         Munkres<float> munk = Munkres<float>();
         munk.solve(matrix);
 
@@ -81,6 +85,8 @@ class HungarianOpCPU : public OpKernel {
             if(!assigned) assignments_output(n, i) = -1;
           }
         }
+
+
       }
     };
 
