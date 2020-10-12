@@ -195,7 +195,8 @@ __global__ void star_mask(const int32 size,
 }
 
 template <typename T>
-void step1(int32& state,
+void step1(cublasHandle_t handle,
+           int32& state,
            const int32 size,
            int32* masks,
            bool* row_masks,
@@ -252,7 +253,8 @@ __global__ void count_mask(const int32 size,
 }
 
 template <typename T>
-void step2(int32& state,
+void step2(cublasHandle_t handle,
+           int32& state,
            const int32 size,
            int32* masks,
            bool* row_masks,
@@ -442,12 +444,13 @@ void step3(cublasHandle_t handle,
 
     }
 
-    // move onto state 5
+    // move onto state 4
     *state = 4;
 
 }
 
-void step4(int32& state,
+void step4(cublasHandle_t handle,
+           int32& state,
            const int32 size,
            int32* masks,
            bool* row_masks,
@@ -458,7 +461,8 @@ void step4(int32& state,
 
 }
 
-void step5(int32& state,
+void step5(cublasHandle_t handle,
+           int32& state,
            int32 size,
            int32* masks,
            bool* row_masks,
@@ -567,7 +571,7 @@ struct HungarianFunctor<GPUDevice, T> {
                 size,
                 square_costs + (cols_fixed ? 1 : size) * j,
                 cols_fixed ? size : 1,
-                device_min + i * size + j);
+                device_min + j);
 
         }
 
@@ -594,7 +598,7 @@ struct HungarianFunctor<GPUDevice, T> {
                 size,
                 square_costs + (cols_fixed ? 1 : size) * j,
                 cols_fixed ? size : 1,
-                device_min + i * size + j);
+                device_min + j);
 
         }
 
@@ -650,19 +654,19 @@ struct HungarianFunctor<GPUDevice, T> {
             // update the solution
             switch ( state ) {
             case 1:
-                step1(state, size, masks, row_masks, col_masks, square_costs);
+                step1(handle, state, size, masks, row_masks, col_masks, square_costs);
                 break;
             case 2:
-                step2(state, size, masks, row_masks, col_masks, square_costs);
+                step2(handle, state, size, masks, row_masks, col_masks, square_costs);
                 break;
             case 3:
                 step3(handle, state, size, masks, row_masks, col_masks, square_costs);
                 break;
             case 4:
-                step4(state, size, masks, row_masks, col_masks, square_costs);
+                step4(handle, state, size, masks, row_masks, col_masks, square_costs);
                 break;
             case 5:
-                step5(state, size, masks, row_masks, col_masks, square_costs);
+                step5(handle, state, size, masks, row_masks, col_masks, square_costs);
                 break;
             }
 
