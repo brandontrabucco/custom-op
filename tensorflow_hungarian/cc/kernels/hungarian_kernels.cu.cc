@@ -194,6 +194,7 @@ __global__ void star_mask(const int32 size,
 
 }
 
+template <typename T>
 void step1(int32& state,
            const int32 size,
            int32* masks,
@@ -220,8 +221,7 @@ void step1(int32& state,
 
 }
 
-template <typename T>
-__global__ void count_mask(int32 size,
+__global__ void count_mask(const int32 size,
                            int32* masks,
                            bool* col_masks,
                            int32* counts) {
@@ -251,6 +251,7 @@ __global__ void count_mask(int32 size,
 
 }
 
+template <typename T>
 void step2(int32& state,
            const int32 size,
            int32* masks,
@@ -261,6 +262,7 @@ void step2(int32& state,
     // allocate memory for a the cover counts on the gpu
     int32* counts;
     cudaMalloc((void**)&counts, sizeof(int32));
+    cudaMemset(counts, 0x0, sizeof(int32));
 
     // fill the resized matrix with the original matrix values
     count_mask<T><<<32, 256>>>(
@@ -284,14 +286,164 @@ void step2(int32& state,
 
 }
 
-void step3(int32& state,
+template <typename T>
+__global__ void find_uncovered(const int32 size,
+                               bool* row_masks,
+                               bool* col_masks,
+                               T* square_costs,
+                               bool* uncovered_buffer,
+                               const T key) {
+
+    // calculate the maximum number of thread calls to make
+    int32 n = size * size;
+
+    // run each thread at least once
+    for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
+            i < n; i += blockDim.x * gridDim.x) {
+
+        // calculate the position in the destination tensor
+        int32 col = i % size;
+        int32 row = (i / size) % size;
+
+        // check which entries satisfy the conditions
+        uncovered_buffer[i] = (!row_mask[row] &&
+                               !row_mask[row] &&
+                               (square_costs[i] == key)) ? 1 : 0;
+
+    }
+
+}
+
+__global__ void find_star(const int32 size,
+                          int32* masks,
+                          bool* uncovered_buffer,
+                          const int32 row) {
+
+    // calculate the maximum number of thread calls to make
+    int32 n = size * size;
+
+    // run each thread at least once
+    for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
+            i < n; i += blockDim.x * gridDim.x) {
+
+        // check which entries satisfy the conditions
+        uncovered_buffer[i] = (masks[i] == STAR)) ? 1 : 0;
+
+    }
+
+}
+
+void step3(cublasHandle_t handle,
+           int32& state,
            const int32 size,
            int32* masks,
            bool* row_masks,
            bool* col_masks,
            T* square_costs) {
 
-    // pass
+    // allocate memory for a the buffer on the gpu
+    bool* uncovered_buffer;
+    cudaMalloc((void**)&uncovered_buffer, sizeof(bool) * size * size);
+
+    // fill the resized matrix with the original matrix values
+    find_uncovered<T><<<32, 256>>>(
+        size, row_masks, col_masks, square_costs, uncovered_buffer, 0);
+
+    // allow for every parallel operation on the GPU to finish
+    cudaDeviceSynchronize();
+
+    // location of the maximal element in memory
+    int32 result = 0;
+
+    // launch several parallel max operations
+    cublasIsamax(handle, size * size, uncovered_buffer, 1, &result);
+
+    // allow for every parallel operation on the GPU to finish
+    cudaDeviceSynchronize();
+
+    // allocate storage for the result of the argmax
+    bool value = false;
+
+    // copy the value at the argmax location to the cpu
+    cudaMemcpy(&value,
+               uncovered_buffer + result,
+               sizeof(bool),
+               cudaMemcpyDeviceToHost);
+
+    if (value) {
+
+        // copy the prime indicator into the mask
+        int32 temporary_prime = PRIME;
+        cudaMemcpy(masks + result,
+                   &temporary_prime,
+                   sizeof(int32),
+                   cudaMemcpyHostToDevice);
+
+    }
+
+    else {
+
+        // otherwise move onto state 5
+        *state = 5;
+        return;
+
+    }
+
+    // location of the maximal element in memory
+    int32 row = result / size;
+
+    // fill the resized matrix with the original matrix values
+    find_star<T><<<32, 256>>>(
+        size, masks, uncovered_buffer, row);
+
+    // allow for every parallel operation on the GPU to finish
+    cudaDeviceSynchronize();
+
+    // location of the maximal element in memory
+    int32 col = 0;
+
+    // launch several parallel max operations
+    cublasIsamax(handle, size, uncovered_buffer + row * size, 1, &col);
+
+    // allow for every parallel operation on the GPU to finish
+    cudaDeviceSynchronize();
+
+    // remove the memory allocated for calculating the buffer
+    cudaFree(uncovered_buffer);
+
+    // allocate storage for the result of the argmax
+    bool value = false;
+
+    // copy the value at the argmax location to the cpu
+    cudaMemcpy(&value,
+               uncovered_buffer + row * size + col,
+               sizeof(bool),
+               cudaMemcpyDeviceToHost);
+
+    if (value) {
+
+        // copy the target value onto the GPU
+        bool row_value = true;
+        cudaMemcpy(row_mask + row,
+                   &row_value,
+                   sizeof(bool),
+                   cudaMemcpyHostToDevice);
+
+        // copy the target value onto the GPU
+        bool col_value = false;
+        cudaMemcpy(col_mask + col,
+                   &col_value,
+                   sizeof(bool),
+                   cudaMemcpyHostToDevice);
+
+        // move onto state 3
+        *state = 3;
+        return;
+
+    }
+
+    // move onto state 5
+    *state = 4;
 
 }
 
@@ -504,7 +656,7 @@ struct HungarianFunctor<GPUDevice, T> {
                 step2(state, size, masks, row_masks, col_masks, square_costs);
                 break;
             case 3:
-                step3(state, size, masks, row_masks, col_masks, square_costs);
+                step3(handle, state, size, masks, row_masks, col_masks, square_costs);
                 break;
             case 4:
                 step4(state, size, masks, row_masks, col_masks, square_costs);
