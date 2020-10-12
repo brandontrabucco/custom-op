@@ -24,12 +24,13 @@ limitations under the License.
 #include "tensorflow/core/util/work_sharder.h"
 
 using std::vector;
+
+namespace tensorflow {
+
 using shape_inference::Shape;
 using shape_inference::Dimension;
 using shape_inference::DimensionHandle;
 using shape_inference::ShapeHandle;
-
-namespace tensorflow {
 
 typedef Eigen::ThreadPoolDevice CPUDevice;
 typedef Eigen::GpuDevice GPUDevice;
