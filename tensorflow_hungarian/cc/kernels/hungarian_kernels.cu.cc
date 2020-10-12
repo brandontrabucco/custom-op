@@ -508,7 +508,7 @@ struct HungarianFunctor<GPUDevice, T> {
         int32 n = size_n * size_m;
 
         // launch several parallel max operations
-        cublasIsamax(handle, n, costs, 1, device_max + i);
+        cublasIsamax(handle, n, costs, 1, device_max);
 
         // allow for every parallel operation on the GPU to finish
         cudaDeviceSynchronize();
