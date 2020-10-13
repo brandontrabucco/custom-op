@@ -50,6 +50,7 @@ static int augmenting_path(const int32 nc,
                            std::vector<bool>& SC,
                            T* p_minVal) {
 
+    T infinity = (T) INFINITY;
     T minVal = 0;
 
     // Crouse's pseudocode uses set complements to keep track of remaining
@@ -64,14 +65,14 @@ static int augmenting_path(const int32 nc,
 
     std::fill(SR.begin(), SR.end(), false);
     std::fill(SC.begin(), SC.end(), false);
-    std::fill(shortestPathCosts.begin(), shortestPathCosts.end(), INFINITY);
+    std::fill(shortestPathCosts.begin(), shortestPathCosts.end(), infinity);
 
     // find shortest augmenting path
     int32 sink = -1;
     while (sink == -1) {
 
         int32 index = -1;
-        T lowest = INFINITY;
+        T lowest = infinity;
         SR[i] = true;
 
         for (int32 it = 0; it < num_remaining; it++) {
@@ -95,7 +96,7 @@ static int augmenting_path(const int32 nc,
 
         minVal = lowest;
         int32 j = remaining[index];
-        if (minVal == INFINITY) { // infeasible cost matrix
+        if (minVal == infinity) { // infeasible cost matrix
             return -1;
         }
 
