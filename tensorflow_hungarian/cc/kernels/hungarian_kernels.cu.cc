@@ -204,8 +204,11 @@ struct HungarianFunctor<GPUDevice, T> {
 };
 
 // Explicitly instantiate functors for the types of OpKernels registered.
+template struct HungarianFunctor<GPUDevice, double>;
 template struct HungarianFunctor<GPUDevice, float>;
+template struct HungarianFunctor<GPUDevice, int64>;
 template struct HungarianFunctor<GPUDevice, int32>;
+template struct HungarianFunctor<GPUDevice, int16>;
 
 }  // end namespace functor
 
