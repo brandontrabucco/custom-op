@@ -211,23 +211,23 @@ public:
     void Compute(OpKernelContext* context) override {
 
         // Grab the input tensor
-        const Tensor& costs = context->input(0);
+        const Tensor& costs_tensor = context->input(0);
 
         // Create an output tensor that is null
-        Tensor* assignments = NULL;
+        Tensor* assignments_tensor = NULL;
 
         // determine the shape of the output
-        vector<int64> shape;
-        for (int i = 0; i < costs.shape().dims(); ++i) {
-            shape.push_back(costs.shape().dim_size(i));
+        std::vector<int64> shape;
+        for (int i = 0; i < costs_tensor.shape().dims(); ++i) {
+            shape.push_back(costs_tensor.shape().dim_size(i));
         }
 
         // allocate space for the output tensor
         OP_REQUIRES_OK(context, context->allocate_output(
-            0, TensorShape({shape[0], shape[1]}), &assignments));
+            0, TensorShape({shape[0], shape[1]}), &assignments_tensor));
 
         // check if the operation is too large
-        OP_REQUIRES(context, costs.NumElements() <= tensorflow::kint32max,
+        OP_REQUIRES(context, costs_tensor.NumElements() <= tensorflow::kint32max,
                     errors::InvalidArgument("Too many elements in tensor"));
 
         // prepare shared variables for each shard
@@ -235,8 +235,8 @@ public:
         const int32 batch_size = static_cast<int32>(shape[0]);
         const int32 size_n = static_cast<int32>(shape[1]);
         const int32 size_m = static_cast<int32>(shape[2]);
-        const T* costs = costs.flat<T>().data();
-        T* assignments = assignments->flat<int32>().data();
+        const T* costs = costs_tensor.flat<T>().data();
+        T* assignments = assignments_tensor->flat<int32>().data();
 
         // implementation of the hungarian algorithm in c++
         auto sharded_function = [
