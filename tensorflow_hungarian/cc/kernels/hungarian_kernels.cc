@@ -231,12 +231,12 @@ public:
                     errors::InvalidArgument("Too many elements in tensor"));
 
         // prepare shared variables for each shard
-        const auto device = context->eigen_device<Device>();
+        const Device device = context->eigen_device<Device>();
         const int32 batch_size = static_cast<int32>(shape[0]);
         const int32 size_n = static_cast<int32>(shape[1]);
         const int32 size_m = static_cast<int32>(shape[2]);
         const T* costs = costs_tensor.flat<T>().data();
-        T* assignments = assignments_tensor->flat<int32>().data();
+        int32* assignments = assignments_tensor->flat<int32>().data();
 
         // implementation of the hungarian algorithm in c++
         auto sharded_function = [
