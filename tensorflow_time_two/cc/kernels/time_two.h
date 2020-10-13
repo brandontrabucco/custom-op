@@ -1,13 +1,13 @@
 // kernel_example.h
-#ifndef KERNEL_HUNGARIAN_H_
-#define KERNEL_HUNGARIAN_H_
+#ifndef KERNEL_TIME_TWO_H_
+#define KERNEL_TIME_TWO_H_
 
 namespace tensorflow {
 
 namespace functor {
 
 template <typename Device, typename T>
-struct HungarianFunctor {
+struct TimeTwoFunctor {
     void operator()(const Device& d,
                     int size_n,
                     int size_m,
@@ -19,4 +19,4 @@ struct HungarianFunctor {
 
 }  // namespace tensorflow
 
-#endif //KERNEL_HUNGARIAN_H_
+#endif //KERNEL_TIME_TWO_H_

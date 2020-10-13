@@ -12,15 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""Use time_two ops in python."""
-
+"""Tests for zero_out ops."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from tensorflow.python.framework import load_library
-from tensorflow.python.platform import resource_loader
+import numpy as np
 
-hungarian_ops = load_library.load_op_library(
-    resource_loader.get_path_to_datafile('_hungarian_ops.so'))
-hungarian = hungarian_ops.hungarian
+from tensorflow.python.platform import test
+try:
+  from tensorflow_zero_out.python.ops.zero_out_ops import zero_out
+except ImportError:
+  from zero_out_ops import zero_out
+
+
+class ZeroOutTest(test.TestCase):
+
+  def testZeroOut(self):
+    with self.test_session():
+      self.assertAllClose(
+          zero_out([[1, 2], [3, 4]]), np.array([[1, 0], [0, 0]]))
+
+
+if __name__ == '__main__':
+  test.main()

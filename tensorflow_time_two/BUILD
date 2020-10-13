@@ -30,8 +30,8 @@ cc_library(
 )
 
 cc_library(
-    name = "hungarian_ops_gpu",
-    srcs = ["cc/kernels/hungarian.h", "cc/kernels/hungarian_kernels.cu.cc"],
+    name = "time_two_ops_gpu",
+    srcs = ["cc/kernels/time_two.h", "cc/kernels/time_two_kernels.cu.cc"],
     deps = [
         "@local_config_tf//:libtensorflow_framework",
         "@local_config_tf//:tf_header_lib",
@@ -45,11 +45,11 @@ cc_library(
 )
 
 cc_binary(
-    name = 'python/ops/_hungarian_ops.so',
+    name = 'python/ops/_time_two_ops.so',
     srcs = [
-        "cc/kernels/hungarian.h",
-        "cc/kernels/hungarian_kernels.cc",
-        "cc/ops/hungarian_ops.cc",
+        "cc/kernels/time_two.h",
+        "cc/kernels/time_two_kernels.cc",
+        "cc/ops/time_two_ops.cc",
     ],
     linkshared = 1,
     features = select({
@@ -59,7 +59,7 @@ cc_binary(
     deps = [
         "@local_config_tf//:libtensorflow_framework",
         "@local_config_tf//:tf_header_lib",
-    ] + if_cuda_is_configured([":hungarian_ops_gpu"]),
+    ] + if_cuda_is_configured([":time_two_ops_gpu"]),
     copts = select({
         ":windows": ["/D__CLANG_SUPPORT_DYN_ANNOTATION__", "/DEIGEN_MPL2_ONLY", "/DEIGEN_MAX_ALIGN_BYTES=64", "/DEIGEN_HAS_TYPE_TRAITS=0", "/DTF_USE_SNAPPY", "/showIncludes", "/MD", "/O2", "/DNDEBUG", "/w", "-DWIN32_LEAN_AND_MEAN", "-DNOGDI", "/d2ReducedOptimizeHugeFunctions", "/arch:AVX", "/std:c++14", "-DTENSORFLOW_MONOLITHIC_BUILD", "/DPLATFORM_WINDOWS", "/DEIGEN_HAS_C99_MATH", "/DTENSORFLOW_USE_EIGEN_THREADPOOL", "/DEIGEN_AVOID_STL_ARRAY", "/Iexternal/gemmlowp", "/wd4018", "/wd4577", "/DNOGDI", "/UTF_COMPILE_LIBRARY"],
         "//conditions:default": ["-pthread", "-std=c++11", "-D_GLIBCXX_USE_CXX11_ABI=0"],
@@ -67,37 +67,37 @@ cc_binary(
 )
 
 py_library(
-    name = "hungarian_ops_py",
+    name = "time_two_ops_py",
     srcs = ([
-        "python/ops/hungarian_ops.py",
+        "python/ops/time_two_ops.py",
     ]),
     data = [
-        ":python/ops/_hungarian_ops.so"
+        ":python/ops/_time_two_ops.so"
     ],
     srcs_version = "PY2AND3",
 )
 
 py_test(
-    name = "hungarian_ops_py_test",
+    name = "time_two_ops_py_test",
     srcs = [
-        "python/ops/hungarian_ops_test.py"
+        "python/ops/time_two_ops_test.py"
     ],
-    main = "python/ops/hungarian_ops_test.py",
+    main = "python/ops/time_two_ops_test.py",
     deps = [
-        ":hungarian_ops_py",
+        ":time_two_ops_py",
     ],
     srcs_version = "PY2AND3",
 )
 
 py_library(
-    name = "hungarian_py",
+    name = "time_two_py",
     srcs = ([
         "__init__.py",
         "python/__init__.py",
         "python/ops/__init__.py",
     ]),
     deps = [
-        ":hungarian_ops_py"
+        ":time_two_ops_py"
     ],
     srcs_version = "PY2AND3",
 )

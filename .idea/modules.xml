@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/../custom-op/.idea/custom-op.iml" filepath="$PROJECT_DIR$/../custom-op/.idea/custom-op.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../munkres-tensorflow/.idea/munkres-tensorflow.iml" filepath="$PROJECT_DIR$/../munkres-tensorflow/.idea/munkres-tensorflow.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/tensorflow-hungarian.iml" filepath="$PROJECT_DIR$/.idea/tensorflow-hungarian.iml" />
+    </modules>
+  </component>
+</project>

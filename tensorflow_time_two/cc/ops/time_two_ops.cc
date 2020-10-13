@@ -23,8 +23,7 @@ using shape_inference::DimensionHandle;
 using shape_inference::ShapeHandle;
 using std::vector;
 
-// Shape of output is the first K - 1 dims of input with K dims
-REGISTER_OP("Hungarian")
+REGISTER_OP("TimeTwo")
     .Attr("T: {int32, float, double}")
     .Input("costs: T")
     .Output("assignments: int32")

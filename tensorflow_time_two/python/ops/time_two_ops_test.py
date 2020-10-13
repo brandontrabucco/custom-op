@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""Tests for hungarian ops."""
+"""Tests for time_two ops."""
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -23,20 +23,20 @@ from tensorflow.python.framework import ops
 from tensorflow.python.platform import test
 from tensorflow.python.framework import test_util
 try:
-    from tensorflow_hungarian.python.ops import hungarian_ops
+  from tensorflow_time_two.python.ops import time_two_ops
 except ImportError:
-    import hungarian_ops
+  import time_two_ops
 
 
-class HungarianTest(test.TestCase):
+class TimeTwoTest(test.TestCase):
 
-    @test_util.run_gpu_only
-    def testHungarian(self):
-        with self.test_session():
-            with ops.device("/gpu:0"):
-                self.assertAllClose(
-                    hungarian_ops.hungarian([[[1, 2], [3, 4]]]), np.array([[0, 1]]))
+  @test_util.run_gpu_only
+  def testTimeTwo(self):
+    with self.test_session():
+      with ops.device("/gpu:0"):
+        self.assertAllClose(
+            time_two_ops.time_two([[1, 2], [3, 4]]), np.array([[2, 4], [6, 8]]))
 
 
 if __name__ == '__main__':
-    test.main()
+  test.main()

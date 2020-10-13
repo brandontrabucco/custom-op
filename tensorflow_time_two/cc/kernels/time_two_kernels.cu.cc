@@ -17,15 +17,13 @@ limitations under the License.
 
 #define EIGEN_USE_GPU
 
-#include "hungarian.h"
-#include "tensorflow/core/framework/shape_inference.h"
+#include "time_two.h"
 #include "tensorflow/core/util/gpu_kernel_helper.h"
 #include <algorithm>
 #include <cmath>
 #include <vector>
 
 namespace tensorflow {
-
 namespace functor {
 
 typedef Eigen::GpuDevice GPUDevice;
@@ -179,7 +177,7 @@ static int solve(int nr,
 
 // Define the GPU implementation that launches the CUDA kernel.
 template <typename T>
-struct HungarianFunctor<GPUDevice, T> {
+struct TimeTwoFunctor<GPUDevice, T> {
 
     void operator()(const GPUDevice& d,
                     int size_n,
@@ -204,12 +202,9 @@ struct HungarianFunctor<GPUDevice, T> {
 };
 
 // Explicitly instantiate functors for the types of OpKernels registered.
-template struct HungarianFunctor<GPUDevice, double>;
-template struct HungarianFunctor<GPUDevice, float>;
-template struct HungarianFunctor<GPUDevice, int>;
-
+template struct TimeTwoFunctor<GPUDevice, float>;
+template struct TimeTwoFunctor<GPUDevice, int32>;
 }  // end namespace functor
-
 }  // end namespace tensorflow
 
 #endif  // GOOGLE_CUDA

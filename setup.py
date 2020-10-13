@@ -27,7 +27,7 @@ __version__ = '0.0.1'
 REQUIRED_PACKAGES = [
     'tensorflow >= 2.1.0',
 ]
-project_name = 'tensorflow-hungarian'
+project_name = 'tensorflow-custom-ops'
 
 
 from setuptools.command.install import install
@@ -49,9 +49,9 @@ class BinaryDistribution(Distribution):
 setup(
     name=project_name,
     version=__version__,
-    description='tensorflow-hungarian is a custom op for TensorFlow',
-    author='Brandon Trabucco',
-    author_email='brandon@btrabucco.com',
+    description=('tensorflow-custom-ops is an examples for custom ops for TensorFlow'),
+    author='Google Inc.',
+    author_email='opensource@google.com',
     # Contained modules and scripts.
     packages=find_packages(),
     install_requires=REQUIRED_PACKAGES,
