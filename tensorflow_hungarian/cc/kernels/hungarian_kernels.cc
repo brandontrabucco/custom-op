@@ -280,9 +280,8 @@ public:
       Name("Hungarian").Device(DEVICE_CPU).TypeConstraint<T>("T"), \
       HungarianOp<CPUDevice, T>);
 
-REGISTER_CPU(float64);
-REGISTER_CPU(float32);
-REGISTER_CPU(float16);
+REGISTER_CPU(double);
+REGISTER_CPU(float);
 REGISTER_CPU(int64);
 REGISTER_CPU(int32);
 REGISTER_CPU(int16);
@@ -296,9 +295,8 @@ REGISTER_CPU(int16);
       Name("Hungarian").Device(DEVICE_GPU).TypeConstraint<T>("T"), \
       HungarianOp<GPUDevice, T>);
 
-REGISTER_GPU(float64);
-REGISTER_GPU(float32);
-REGISTER_GPU(float16);
+REGISTER_GPU(double);
+REGISTER_GPU(float);
 REGISTER_GPU(int64);
 REGISTER_GPU(int32);
 REGISTER_GPU(int16);
