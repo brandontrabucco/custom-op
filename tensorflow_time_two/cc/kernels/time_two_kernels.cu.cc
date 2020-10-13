@@ -190,7 +190,7 @@ struct TimeTwoFunctor<GPUDevice, T> {
         cudaMemcpy(costs_cpu, costs, sizeof(T) * size_n * size_m,
                    cudaMemcpyDeviceToHost);
 
-        solve<T>(size_n, size_m, costs, assignments);
+        solve<T>(size_n, size_m, costs_cpu, assignments_cpu);
 
         cudaMemcpy(assignments, assignments_cpu, sizeof(int) * size_n,
                    cudaMemcpyHostToDevice);
