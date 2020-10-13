@@ -25,7 +25,7 @@ using shape_inference::ShapeHandle;
 
 // Shape of output is the first K - 1 dims of input with K dims
 REGISTER_OP("Hungarian")
-    .Attr("T: {int32, float}")
+    .Attr("T: {int16, int32, int64, float16, float32, float64}")
     .Input("costs: T")
     .Output("assignments: int32")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
