@@ -197,6 +197,8 @@ __global__ void star_mask(const int32 size,
 template <typename T>
 void step1(cublasHandle_t handle,
            int32& state,
+           int32& save_row,
+           int32& save_col,
            const int32 size,
            int32* masks,
            bool* row_masks,
@@ -222,6 +224,7 @@ void step1(cublasHandle_t handle,
 
 }
 
+template <typename T>
 __global__ void count_mask(const int32 size,
                            int32* masks,
                            bool* col_masks,
@@ -255,6 +258,8 @@ __global__ void count_mask(const int32 size,
 template <typename T>
 void step2(cublasHandle_t handle,
            int32& state,
+           int32& save_row,
+           int32& save_col,
            const int32 size,
            int32* masks,
            bool* row_masks,
@@ -316,10 +321,10 @@ __global__ void find_uncovered(const int32 size,
 
 }
 
+template <typename T>
 __global__ void find_star(const int32 size,
                           int32* masks,
-                          bool* uncovered_buffer,
-                          const int32 row) {
+                          bool* uncovered_buffer) {
 
     // calculate the maximum number of thread calls to make
     int32 n = size * size;
@@ -335,8 +340,11 @@ __global__ void find_star(const int32 size,
 
 }
 
+template <typename T>
 void step3(cublasHandle_t handle,
            int32& state,
+           int32& save_row,
+           int32& save_col,
            const int32 size,
            int32* masks,
            bool* row_masks,
@@ -392,20 +400,17 @@ void step3(cublasHandle_t handle,
     }
 
     // location of the maximal element in memory
-    int32 row = result / size;
+    *save_row = result / size;
 
     // fill the resized matrix with the original matrix values
     find_star<T><<<32, 256>>>(
-        size, masks, uncovered_buffer, row);
+        size, masks, uncovered_buffer);
 
     // allow for every parallel operation on the GPU to finish
     cudaDeviceSynchronize();
 
-    // location of the maximal element in memory
-    int32 col = 0;
-
     // launch several parallel max operations
-    cublasIsamax(handle, size, uncovered_buffer + row * size, 1, &col);
+    cublasIsamax(handle, size, uncovered_buffer + save_row * size, 1, &save_col);
 
     // allow for every parallel operation on the GPU to finish
     cudaDeviceSynchronize();
@@ -418,7 +423,7 @@ void step3(cublasHandle_t handle,
 
     // copy the value at the argmax location to the cpu
     cudaMemcpy(&value,
-               uncovered_buffer + row * size + col,
+               uncovered_buffer + save_row * size + save_col,
                sizeof(bool),
                cudaMemcpyDeviceToHost);
 
@@ -426,14 +431,14 @@ void step3(cublasHandle_t handle,
 
         // copy the target value onto the GPU
         bool row_value = true;
-        cudaMemcpy(row_mask + row,
+        cudaMemcpy(row_mask + save_row,
                    &row_value,
                    sizeof(bool),
                    cudaMemcpyHostToDevice);
 
         // copy the target value onto the GPU
         bool col_value = false;
-        cudaMemcpy(col_mask + col,
+        cudaMemcpy(col_mask + save_col,
                    &col_value,
                    sizeof(bool),
                    cudaMemcpyHostToDevice);
@@ -449,21 +454,337 @@ void step3(cublasHandle_t handle,
 
 }
 
+template <typename T>
+__global__ void find_pair(const int32 row,
+                          const int32 col,
+                          int32* seq_row,
+                          int32* seq_col,
+                          int32 end,
+                          bool* pair_in_list) {
+
+    // run each thread at least once
+    for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
+            i < end; i += blockDim.x * gridDim.x) {
+
+        // check which entries satisfy the conditions
+        atomicOr(pair_in_list, seq_0[i] == row && seq_1[i] == col);
+
+    }
+
+}
+
+template <typename T>
+__global__ void eliminate_matches(const int32 size,
+                                  int32* seq_row,
+                                  int32* seq_col,
+                                  int32 end,
+                                  int32* masks) {
+
+    // run each thread at least once
+    for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
+            i < end; i += blockDim.x * gridDim.x) {
+
+        // compute the absolute memory position to evaluate masks
+        int32 pos = seq_col[i] + seq_row[i] * size;
+
+        // unstar each starred zero of the sequence
+        if (masks[pos] == STAR) masks[pos] = NORMAL;
+
+        // star each primed zero of the sequence
+        else if (masks[pos] == PRIME) masks[pos] = STAR;
+
+    }
+
+}
+
+template <typename T>
+__global__ void erase_and_uncover(const int32 size,
+                                  int32* masks,
+                                  bool* row_masks,
+                                  bool* col_masks) {
+
+    // run each thread at least once
+    for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
+            i < size * size; i += blockDim.x * gridDim.x) {
+
+        // calculate the position in the destination tensor
+        int32 col = i % size;
+        int32 row = (i / size) % size;
+
+        // eliminate each primed value in the masks matrix
+        if (masks[i] == PRIME) masks[i] = NORMAL;
+
+        // uncover every row and column
+        atomicExch(col_masks + col, 0);
+        atomicExch(row_masks + row, 0);
+
+    }
+
+}
+
+template <typename T>
 void step4(cublasHandle_t handle,
            int32& state,
+           int32& save_row,
+           int32& save_col,
            const int32 size,
            int32* masks,
            bool* row_masks,
            bool* col_masks,
            T* square_costs) {
 
-    // pass
+    // allocate memory for a the buffer on the gpu
+    bool* bool_buffer;
+    cudaMalloc((void**)&bool_buffer, sizeof(bool) * size * size);
+
+    // allocate memory for a the buffer on the gpu
+    bool* pair_in_list;
+    cudaMalloc((void**)&pair_in_list, sizeof(bool));
+
+    // allocate memory for a the buffer on the gpu
+    int32* seq_row;
+    cudaMalloc((void**)&seq_row, sizeof(int32) * size * size);
+
+    // allocate memory for a the buffer on the gpu
+    int32* seq_col;
+    cudaMalloc((void**)&seq_col, sizeof(int32) * size * size);
+
+    // make space on the host for the end of the list
+    int32 end = 0;
+
+    // fill the boolean buffer with STAR indicators
+    find_star<T><<<32, 256>>>(
+        size, masks, bool_buffer);
+
+    // allow for every parallel operation on the GPU to finish
+    cudaDeviceSynchronize();
+
+    // the value of the row that matches our criterion
+    int32 match_row = 0;
+
+    // the value of the col that matches our criterion
+    int32 match_col = save_col;
+
+    bool made_pair;
+
+    do {
+
+        made_pair = false;
+
+        // the value of the row that matches our criterion
+        int32 temporary_row = 0;
+
+        // find the row that matches a criterion
+        while (true) {
+
+            // select the row with max value
+            cublasIsamax(handle,
+                         size - temporary_row,
+                         bool_buffer + match_col + temporary_row * size,
+                         size,
+                         &temporary_row);
+
+            // allow for every parallel operation on the GPU to finish
+            cudaDeviceSynchronize();
+
+            // allocate storage for the result of the argmax
+            bool contains_star = false;
+
+            // copy the value at the argmax location to the cpu
+            cudaMemcpy(&contains_star,
+                       bool_buffer + temporary_row * size + match_col,
+                       sizeof(bool),
+                       cudaMemcpyDeviceToHost);
+
+            if (contains_star) {
+
+                // check if the current pair has already been found
+                cudaMemset(pair_in_list, 0x0, sizeof(bool));
+                find_pair<T><<<32, 256>>>(
+                    temporary_row, match_col, seq_row, seq_col, end, pair_in_list);
+
+                // allow for every parallel operation on the GPU to finish
+                cudaDeviceSynchronize();
+
+                // allocate storage for the result of the argmax
+                bool contains_pair = false;
+
+                // copy the value at the argmax location to the cpu
+                cudaMemcpy(&contains_pair,
+                           pair_in_list,
+                           sizeof(bool),
+                           cudaMemcpyDeviceToHost);
+
+                // allow for every parallel operation on the GPU to finish
+                cudaDeviceSynchronize();
+
+                if (contains_pair) {
+
+                    // this match has already been recorded
+                    continue;
+
+                }
+
+                else {
+
+                    // add the current match to our found list
+                    cudaMemcpy(seq_row + end,
+                               &temporary_row,
+                               sizeof(int32),
+                               cudaMemcpyHostToDevice);
+
+                    // add the current match to our found list
+                    cudaMemcpy(seq_col + end,
+                               &match_col,
+                               sizeof(int32),
+                               cudaMemcpyHostToDevice);
+
+                    // increment the list end by one
+                    end++;
+
+                    // flag that we have found a matching pair
+                    made_pair = true;
+
+                    // we have found a match so add it to the list
+                    break;
+
+                }
+
+            }
+
+            else {
+
+                temporary_row = size - 1;
+
+                // there are no matches in the col
+                break;
+
+            }
+
+        }
+
+        match_row = temporary_row;
+
+        // only pass this section if a first pair has been found
+        if (!made_pair) break;
+
+        made_pair = false;
+
+        // the value of the row that matches our criterion
+        int32 temporary_col = 0;
+
+        // find the row that matches a criterion
+        while (true) {
+
+            // select the row with max value
+            cublasIsamax(handle,
+                         size - temporary_col,
+                         bool_buffer + temporary_col + match_row * size,
+                         1,
+                         &temporary_col);
+
+            // allow for every parallel operation on the GPU to finish
+            cudaDeviceSynchronize();
+
+            // allocate storage for the result of the argmax
+            bool contains_star = false;
+
+            // copy the value at the argmax location to the cpu
+            cudaMemcpy(&contains_star,
+                       bool_buffer + match_row * size + temporary_col,
+                       sizeof(bool),
+                       cudaMemcpyDeviceToHost);
+
+            if (contains_star) {
+
+                // check if the current pair has already been found
+                cudaMemset(pair_in_list, 0x0, sizeof(bool));
+                find_pair<T><<<32, 256>>>(
+                    match_row, temporary_col, seq_row, seq_col, end, pair_in_list);
+
+                // allow for every parallel operation on the GPU to finish
+                cudaDeviceSynchronize();
+
+                // allocate storage for the result of the argmax
+                bool contains_pair = false;
+
+                // copy the value at the argmax location to the cpu
+                cudaMemcpy(&contains_pair,
+                           pair_in_list,
+                           sizeof(bool),
+                           cudaMemcpyDeviceToHost);
+
+                // allow for every parallel operation on the GPU to finish
+                cudaDeviceSynchronize();
+
+                if (contains_pair) {
+
+                    // this match has already been recorded
+                    continue;
+
+                }
+
+                else {
+
+                    // add the current match to our found list
+                    cudaMemcpy(seq_row + end,
+                               &match_row,
+                               sizeof(int32),
+                               cudaMemcpyHostToDevice);
+
+                    // add the current match to our found list
+                    cudaMemcpy(seq_col + end,
+                               &temporary_col,
+                               sizeof(int32),
+                               cudaMemcpyHostToDevice);
+
+                    // increment the list end by one
+                    end++;
+
+                    // flag that we have found a matching pair
+                    made_pair = true;
+
+                    // we have found a match so add it to the list
+                    break;
+
+                }
+
+            }
+
+            else {
+
+                temporary_col = size - 1;
+
+                // there are no matches in the row
+                break;
+
+            }
+
+        }
+
+        match_col = temporary_col;
+
+    } while (made_pair);
+
+    // eliminate every starred pair from the mask matrix
+    eliminate_matches<T><<<32, 256>>>(
+        size, seq_row, seq_col, end, masks);
+
+    // clean up the masks and remove all primed elements
+    erase_and_uncover<T><<<32, 256>>>(
+        size, masks, row_masks, col_masks);
+
+    // move onto state 2
+    *state = 2;
 
 }
 
+template <typename T>
 void step5(cublasHandle_t handle,
            int32& state,
-           int32 size,
+           int32& save_row,
+           int32& save_col,
+           const int32 size,
            int32* masks,
            bool* row_masks,
            bool* col_masks,
@@ -640,6 +961,8 @@ struct HungarianFunctor<GPUDevice, T> {
 
         // allocate space for a loop state variable
         int32 state = 1;
+        int32 save_row = 0;
+        int32 save_col = 0;
 
         /*
          *
@@ -649,27 +972,30 @@ struct HungarianFunctor<GPUDevice, T> {
          *
          */
 
+        // update the solution
         while (state != 0) {
-
-            // update the solution
             switch ( state ) {
             case 1:
-                step1(handle, state, size, masks, row_masks, col_masks, square_costs);
+                step1<T>(handle, state, save_row, save_col,
+                         size, masks, row_masks, col_masks, square_costs);
                 break;
             case 2:
-                step2(handle, state, size, masks, row_masks, col_masks, square_costs);
+                step2<T>(handle, state, save_row, save_col,
+                      size, masks, row_masks, col_masks, square_costs);
                 break;
             case 3:
-                step3(handle, state, size, masks, row_masks, col_masks, square_costs);
+                step3<T>(handle, state, save_row, save_col,
+                         size, masks, row_masks, col_masks, square_costs);
                 break;
             case 4:
-                step4(handle, state, size, masks, row_masks, col_masks, square_costs);
+                step4<T>(handle, state, save_row, save_col,
+                         size, masks, row_masks, col_masks, square_costs);
                 break;
             case 5:
-                step5(handle, state, size, masks, row_masks, col_masks, square_costs);
+                step5<T>(handle, state, save_row, save_col,
+                         size, masks, row_masks, col_masks, square_costs);
                 break;
             }
-
         }
 
         // remove the memory allocated for calculating the masks
