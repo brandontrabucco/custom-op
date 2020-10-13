@@ -220,7 +220,7 @@ void step1(cublasHandle_t handle,
     cudaFree(masks_buffer);
 
     // determine which state to move to if not finished
-    *state = (*state == 0) ? 0 : 2;
+    state = (state == 0) ? 0 : 2;
 
 }
 
@@ -289,7 +289,7 @@ void step2(cublasHandle_t handle,
     cudaFree(count);
 
     // determine which state to move to if not finished
-    *state = (*state == 0) ? 0 : (counts_cpu >= size) ? 0 : 3;
+    state = (state == 0) ? 0 : (counts_cpu >= size) ? 0 : 3;
 
 }
 
@@ -394,7 +394,7 @@ void step3(cublasHandle_t handle,
     else {
 
         // otherwise move onto state 5
-        *state = 5;
+        state = 5;
         return;
 
     }
@@ -444,13 +444,13 @@ void step3(cublasHandle_t handle,
                    cudaMemcpyHostToDevice);
 
         // move onto state 3
-        *state = 3;
+        state = 3;
         return;
 
     }
 
     // move onto state 4
-    *state = 4;
+    state = 4;
 
 }
 
@@ -615,9 +615,6 @@ void step4(cublasHandle_t handle,
                            sizeof(bool),
                            cudaMemcpyDeviceToHost);
 
-                // allow for every parallel operation on the GPU to finish
-                cudaDeviceSynchronize();
-
                 if (contains_pair) {
 
                     // this match has already been recorded
@@ -714,9 +711,6 @@ void step4(cublasHandle_t handle,
                            sizeof(bool),
                            cudaMemcpyDeviceToHost);
 
-                // allow for every parallel operation on the GPU to finish
-                cudaDeviceSynchronize();
-
                 if (contains_pair) {
 
                     // this match has already been recorded
@@ -770,12 +764,84 @@ void step4(cublasHandle_t handle,
     eliminate_matches<T><<<32, 256>>>(
         size, seq_row, seq_col, end, masks);
 
+    // allow for every parallel operation on the GPU to finish
+    cudaDeviceSynchronize();
+
     // clean up the masks and remove all primed elements
     erase_and_uncover<T><<<32, 256>>>(
         size, masks, row_masks, col_masks);
 
+    // allow for every parallel operation on the GPU to finish
+    cudaDeviceSynchronize();
+
+    // free memory that was allocated on the GPU
+    cudaFree(bool_buffer);
+
+    // free memory that was allocated on the GPU
+    cudaFree(pair_in_list);
+
+    // free memory that was allocated on the GPU
+    cudaFree(seq_row);
+
+    // free memory that was allocated on the GPU
+    cudaFree(seq_col);
+
     // move onto state 2
-    *state = 2;
+    state = 2;
+
+}
+
+template <typename T>
+__global__ void minimum_uncovered(const int32 size,
+                                  bool* row_masks,
+                                  bool* col_masks,
+                                  T* squared_costs,
+                                  T* h) {
+
+    // run each thread at least once
+    for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
+            i < size * size; i += blockDim.x * gridDim.x) {
+
+        // calculate the position in the destination tensor
+        int32 col = i % size;
+        int32 row = (i / size) % size;
+
+        // if the conditions are satisfied take a minimum
+        T val = squared_costs[i];
+        if (!row_masks[row] && !col_masks[col] && val != 0) {
+            atomicMin(h, val);
+        }
+
+    }
+
+}
+
+template <typename T>
+__global__ void shift_costs(const int32 size,
+                            bool* row_masks,
+                            bool* col_masks,
+                            T* squared_costs,
+                            T* h) {
+
+    // run each thread at least once
+    for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
+            i < size * size; i += blockDim.x * gridDim.x) {
+
+        // calculate the position in the destination tensor
+        int32 col = i % size;
+        int32 row = (i / size) % size;
+
+        // add h to all covered rows.
+        if (row_masks[row]) {
+            squared_costs[i] += *h;
+        }
+
+        // subtract h from all uncovered columns
+        if (!col_masks[col]) {
+            squared_costs[i] -= *h;
+        }
+
+    }
 
 }
 
@@ -790,7 +856,96 @@ void step5(cublasHandle_t handle,
            bool* col_masks,
            T* square_costs) {
 
-    // pass
+    // allocate memory for the minimum uncovered element
+    T* h;
+    cudaMalloc((void**)&h, sizeof(T));
+
+    // initialize h to be the max value that is not infinity
+    const T limit = std::numeric_limits<T>::max();
+    cudaMemcpy(h, &limit, sizeof(T), cudaMemcpyHostToDevice)
+
+    // calculate the minimum uncovered element using a reduction
+    minimum_uncovered<T><<<32, 256>>>(
+        size, row_masks, col_masks, squared_costs, h);
+
+    // allow for every parallel operation on the GPU to finish
+    cudaDeviceSynchronize();
+
+    // calculate the minimum uncovered element using a reduction
+    shift_costs<T><<<32, 256>>>(
+        size, row_masks, col_masks, squared_costs, h);
+
+    // allow for every parallel operation on the GPU to finish
+    cudaDeviceSynchronize();
+
+    // free allocated memory on the GPU
+    cudaFree(h);
+
+    // move onto state 3
+    state = 3;
+
+}
+
+template <typename T>
+__global__ void mask_costs(const int32 size,
+                           int32* masks,
+                           T* squared_costs) {
+
+    // run each thread at least once
+    for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
+            i < size * size; i += blockDim.x * gridDim.x) {
+
+        // set all prime location to zero
+        if (masks[i] == STAR) {
+            squared_costs[i] = 0;
+        }
+
+        // set all other locations to -1
+        else {
+            squared_costs[i] = -1;
+        }
+
+    }
+
+}
+
+template <typename T>
+__global__ void init_assignments(const int32 size_n,
+                                 T* assignments) {
+
+    // run each thread at least once
+    for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
+            i < size_n; i += blockDim.x * gridDim.x) {
+
+        // set the output to column selected by hungarian algorithm
+        assignments[i] = -1;
+
+    }
+
+}
+
+template <typename T>
+__global__ void make_assignments(const int32 size_n,
+                                 const int32 size_m,
+                                 const int32 size,
+                                 T* assignments,
+                                 T* squared_costs) {
+
+    // run each thread at least once
+    for (int32 i = blockIdx.x * blockDim.x + threadIdx.x;
+            i < size_n * size_m; i += blockDim.x * gridDim.x) {
+
+        // calculate the position in the source square tensor
+        int32 col = i % size_m;
+        int32 row = (i / size_m) % size_n;
+        int32 pos = col + row * size;
+
+        // set the output to column selected by hungarian algorithm
+        if (squared_costs[pos] == 0) {
+            assignments[row] = col;
+        }
+
+    }
 
 }
 
@@ -972,31 +1127,65 @@ struct HungarianFunctor<GPUDevice, T> {
          *
          */
 
-        // update the solution
         while (state != 0) {
+
             switch ( state ) {
+
             case 1:
                 step1<T>(handle, state, save_row, save_col,
                          size, masks, row_masks, col_masks, square_costs);
                 break;
+
             case 2:
                 step2<T>(handle, state, save_row, save_col,
                       size, masks, row_masks, col_masks, square_costs);
                 break;
+
             case 3:
                 step3<T>(handle, state, save_row, save_col,
                          size, masks, row_masks, col_masks, square_costs);
                 break;
+
             case 4:
                 step4<T>(handle, state, save_row, save_col,
                          size, masks, row_masks, col_masks, square_costs);
                 break;
+
             case 5:
                 step5<T>(handle, state, save_row, save_col,
                          size, masks, row_masks, col_masks, square_costs);
                 break;
+
             }
+
         }
+
+        /*
+         *
+         *
+         * PREPARE THE FINAL SOLUTION
+         *
+         *
+         */
+
+        // process the result of the hungarian algorithm
+        mask_costs<T><<<32, 256>>>(size, masks, squared_costs);
+
+        // allow for every parallel operation on the GPU to finish
+        cudaDeviceSynchronize();
+
+        // process the result of the hungarian algorithm
+        init_assignments<T><<<32, 256>>>(size_n, assignments);
+
+        // allow for every parallel operation on the GPU to finish
+        cudaDeviceSynchronize();
+
+        // process the result of the hungarian algorithm
+        make_assignments<T><<<32, 256>>>(
+            size_n, size_m, size, assignments, squared_costs);
+
+        // allow for every parallel operation on the GPU to finish
+        cudaDeviceSynchronize();
 
         // remove the memory allocated for calculating the masks
         cudaFree(masks);
@@ -1006,6 +1195,9 @@ struct HungarianFunctor<GPUDevice, T> {
 
         // remove the memory allocated for calculating the masks
         cudaFree(col_masks);
+
+        // remove the memory allocated for calculating the masks
+        cudaFree(squared_costs);
 
         // we are done to remove the library handle
         cublasDestroy(handle);
