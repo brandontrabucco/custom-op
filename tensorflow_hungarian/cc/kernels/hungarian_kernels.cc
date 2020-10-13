@@ -231,7 +231,6 @@ public:
                     errors::InvalidArgument("Too many elements in tensor"));
 
         // prepare shared variables for each shard
-        const Device device = context->eigen_device<Device>();
         const int32 batch_size = static_cast<int32>(shape[0]);
         const int32 size_n = static_cast<int32>(shape[1]);
         const int32 size_m = static_cast<int32>(shape[2]);
@@ -240,7 +239,7 @@ public:
 
         // implementation of the hungarian algorithm in c++
         auto sharded_function = [
-                &device,
+                &context,
                 &size_n,
                 &size_m,
                 &costs,
@@ -251,7 +250,7 @@ public:
 
                 // launch the device generalized operation functor
                 HungarianFunctor<Device, T>()(
-                    device,
+                    context->eigen_device<Device>(),
                     size_n,
                     size_m, // below we view into costs and assignments
                     costs + i * size_n * size_m,
