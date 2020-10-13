@@ -3,6 +3,7 @@
 Install a docker image to build the op library.
 
 ```bash
+git clone https://github.com/brandontrabucco/tensorflow-hungarian
 docker pull tensorflow/tensorflow:custom-op-gpu-ubuntu16
 docker run --runtime=nvidia --privileged  -it -v ${PWD}:/working_dir -w /working_dir  tensorflow/tensorflow:custom-op-gpu-ubuntu16
 ```
@@ -10,15 +11,17 @@ docker run --runtime=nvidia --privileged  -it -v ${PWD}:/working_dir -w /working
 Compile the op library using bazel and install it.
 
 ```bash
+cd tensorflow-hungarian
 ./configure.sh
 bazel build build_pip_pkg
 bazel-bin/build_pip_pkg artifacts
-pip3 install artifacts/*.whl
 ```
 
 Test the op library.
 
 ```bash
+pip3 install artifacts/*.whl
+cd ../
 python3 tensorflow-hungarian/tensorflow_hungarian/python/ops/hungarian_ops_test.py
 ```
 
