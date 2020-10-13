@@ -23,7 +23,7 @@ using shape_inference::DimensionHandle;
 using shape_inference::ShapeHandle;
 using std::vector;
 
-REGISTER_OP("TimeTwo")
+REGISTER_OP("Hungarian")
     .Attr("T: {int32, float, double}")
     .Input("costs: T")
     .Output("assignments: int32")

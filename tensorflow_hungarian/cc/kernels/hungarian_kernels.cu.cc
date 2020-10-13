@@ -177,7 +177,7 @@ static int solve(int nr,
 
 // Define the GPU implementation that launches the CUDA kernel.
 template <typename T>
-struct TimeTwoFunctor<GPUDevice, T> {
+struct HungarianFunctor<GPUDevice, T> {
 
     void operator()(const GPUDevice& d,
                     int size_n,
@@ -202,8 +202,8 @@ struct TimeTwoFunctor<GPUDevice, T> {
 };
 
 // Explicitly instantiate functors for the types of OpKernels registered.
-template struct TimeTwoFunctor<GPUDevice, float>;
-template struct TimeTwoFunctor<GPUDevice, int32>;
+template struct HungarianFunctor<GPUDevice, float>;
+template struct HungarianFunctor<GPUDevice, int32>;
 }  // end namespace functor
 }  // end namespace tensorflow
 

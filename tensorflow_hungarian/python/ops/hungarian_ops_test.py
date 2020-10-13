@@ -23,19 +23,19 @@ from tensorflow.python.framework import ops
 from tensorflow.python.platform import test
 from tensorflow.python.framework import test_util
 try:
-  from tensorflow_time_two.python.ops import time_two_ops
+  from tensorflow_hungarian.python.ops import hungarian_ops
 except ImportError:
-  import time_two_ops
+  import hungarian_ops
 
 
-class TimeTwoTest(test.TestCase):
+class HungarianTest(test.TestCase):
 
   @test_util.run_gpu_only
-  def testTimeTwo(self):
+  def testHungarian(self):
     with self.test_session():
       with ops.device("/gpu:0"):
         self.assertAllClose(
-            time_two_ops.time_two([[1, 2], [3, 4]]), np.array([[2, 4], [6, 8]]))
+            hungarian_ops.hungarian([[1, 2], [3, 4]]), np.array([[2, 4], [6, 8]]))
 
 
 if __name__ == '__main__':

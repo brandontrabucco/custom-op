@@ -17,7 +17,7 @@ limitations under the License.
 #define EIGEN_USE_GPU
 #endif  // GOOGLE_CUDA
 
-#include "time_two.h"
+#include "hungarian.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/shape_inference.h"
 #include "tensorflow/core/util/work_sharder.h"
@@ -186,7 +186,7 @@ static int solve(int nr,
 
 // CPU specialization of actual computation.
 template <typename T>
-struct TimeTwoFunctor<CPUDevice, T> {
+struct HungarianFunctor<CPUDevice, T> {
 
     void operator()(const CPUDevice& d,
                     int size_n,
@@ -203,11 +203,11 @@ struct TimeTwoFunctor<CPUDevice, T> {
 // OpKernel definition.
 // template parameter <T> is the datatype of the tensors.
 template <typename Device, typename T>
-class TimeTwoOp : public OpKernel {
+class HungarianOp : public OpKernel {
 
 public:
 
-    explicit TimeTwoOp(OpKernelConstruction* context) : OpKernel(context) {}
+    explicit HungarianOp(OpKernelConstruction* context) : OpKernel(context) {}
 
     void Compute(OpKernelContext* context) override {
 
@@ -250,7 +250,7 @@ public:
             for (int i = start; i < limit; i++) {
 
                 // launch the device generalized operation functor
-                TimeTwoFunctor<Device, T>()(
+                HungarianFunctor<Device, T>()(
                     context->eigen_device<Device>(),
                     size_n,
                     size_m, // below we view into costs and assignments
@@ -278,18 +278,18 @@ public:
 // Register the CPU kernels.
 #define REGISTER_CPU(T)                                          \
   REGISTER_KERNEL_BUILDER(                                       \
-      Name("TimeTwo").Device(DEVICE_CPU).TypeConstraint<T>("T"), \
-      TimeTwoOp<CPUDevice, T>);
+      Name("Hungarian").Device(DEVICE_CPU).TypeConstraint<T>("T"), \
+      HungarianOp<CPUDevice, T>);
 REGISTER_CPU(float);
 REGISTER_CPU(int32);
 
 // Register the GPU kernels.
 #ifdef GOOGLE_CUDA
 #define REGISTER_GPU(T)                                          \
-  extern template struct TimeTwoFunctor<GPUDevice, T>;           \
+  extern template struct HungarianFunctor<GPUDevice, T>;           \
   REGISTER_KERNEL_BUILDER(                                       \
-      Name("TimeTwo").Device(DEVICE_GPU).TypeConstraint<T>("T"), \
-      TimeTwoOp<GPUDevice, T>);
+      Name("Hungarian").Device(DEVICE_GPU).TypeConstraint<T>("T"), \
+      HungarianOp<GPUDevice, T>);
 REGISTER_GPU(float);
 REGISTER_GPU(int32);
 #endif  // GOOGLE_CUDA
