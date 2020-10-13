@@ -35,7 +35,7 @@ class HungarianTest(test.TestCase):
     def testHungarian(self):
         with self.test_session():
 
-            costs = np.array([[1, 2], [3, 4]])
+            costs = np.array([[1, 2], [3, 4]]).astype(np.int32)
             a_real, b_real = linear_sum_assignment(costs)
 
             with ops.device("/gpu:0"):
