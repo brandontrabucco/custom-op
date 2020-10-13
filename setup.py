@@ -17,20 +17,17 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from setuptools import Extension
 from setuptools import find_packages
 from setuptools import setup
 from setuptools.dist import Distribution
+from setuptools.command.install import install
 
 
 __version__ = '0.0.1'
-REQUIRED_PACKAGES = [
-    'tensorflow >= 2.1.0',
-]
-project_name = 'tensorflow-custom-ops'
+REQUIRED_PACKAGES = ['tensorflow >= 2.1.0', 'scipy']
+project_name = 'tensorflow-hungarian'
 
 
-from setuptools.command.install import install
 class InstallPlatlib(install):
     def finalize_options(self):
         install.finalize_options(self)
@@ -49,9 +46,9 @@ class BinaryDistribution(Distribution):
 setup(
     name=project_name,
     version=__version__,
-    description=('tensorflow-custom-ops is an examples for custom ops for TensorFlow'),
-    author='Google Inc.',
-    author_email='opensource@google.com',
+    description='The Hungarian Algorithm in TensorFlow',
+    author='Brandon Trabucco',
+    author_email='brandon@btrabucco.com',
     # Contained modules and scripts.
     packages=find_packages(),
     install_requires=REQUIRED_PACKAGES,
