@@ -22,8 +22,8 @@ limitations under the License.
 #include "tensorflow/core/framework/shape_inference.h"
 #include "tensorflow/core/util/work_sharder.h"
 #include <algorithm>
-#include <cmath>
 #include <vector>
+#include <cmath>
 
 namespace tensorflow {
 
@@ -38,14 +38,14 @@ typedef Eigen::GpuDevice GPUDevice;
 namespace functor {
 
 template <typename T>
-static int augmenting_path(const int32 nc,
+static int augmenting_path(int nc,
                            std::vector<T>& cost,
                            std::vector<T>& u,
                            std::vector<T>& v,
-                           std::vector<int32>& path,
-                           std::vector<int32>& row4col,
+                           std::vector<int>& path,
+                           std::vector<int>& row4col,
                            std::vector<T>& shortestPathCosts,
-                           int32 i,
+                           int i,
                            std::vector<bool>& SR,
                            std::vector<bool>& SC,
                            T* p_minVal) {
@@ -55,9 +55,9 @@ static int augmenting_path(const int32 nc,
 
     // Crouse's pseudocode uses set complements to keep track of remaining
     // nodes.  Here we use a vector, as it is more efficient in C++.
-    int32 num_remaining = nc;
-    std::vector<int32> remaining(nc);
-    for (int32 it = 0; it < nc; it++) {
+    int num_remaining = nc;
+    std::vector<int> remaining(nc);
+    for (int it = 0; it < nc; it++) {
         // Filling this up in reverse order ensures that the solution of a
         // constant cost matrix is the identity matrix (c.f. #11602).
         remaining[it] = nc - it - 1;
@@ -68,15 +68,15 @@ static int augmenting_path(const int32 nc,
     std::fill(shortestPathCosts.begin(), shortestPathCosts.end(), infinity);
 
     // find shortest augmenting path
-    int32 sink = -1;
+    int sink = -1;
     while (sink == -1) {
 
-        int32 index = -1;
+        int index = -1;
         T lowest = infinity;
         SR[i] = true;
 
-        for (int32 it = 0; it < num_remaining; it++) {
-            int32 j = remaining[it];
+        for (int it = 0; it < num_remaining; it++) {
+                int j = remaining[it];
 
             T r = minVal + cost[i * nc + j] - u[i] - v[j];
             if (r < shortestPathCosts[j]) {
@@ -95,7 +95,7 @@ static int augmenting_path(const int32 nc,
         }
 
         minVal = lowest;
-        int32 j = remaining[index];
+        int j = remaining[index];
         if (minVal == infinity) { // infeasible cost matrix
             return -1;
         }
@@ -117,15 +117,15 @@ static int augmenting_path(const int32 nc,
 }
 
 template <typename T>
-static int solve(const int32 nr,
-                 const int32 nc,
+static int solve(int nr,
+                 int nc,
                  const T* input_cost,
-                 int32* output_col4row) {
+                 int* output_col4row) {
 
     // build a non-negative cost matrix
     std::vector<T> cost(nr * nc);
     T minval = *std::min_element(input_cost, input_cost + nr * nc);
-    for (int32 i = 0; i < nr * nc; i++) {
+    for (int i = 0; i < nr * nc; i++) {
         cost[i] = input_cost[i] - minval;
     }
 
@@ -133,17 +133,17 @@ static int solve(const int32 nr,
     std::vector<T> u(nr, 0);
     std::vector<T> v(nc, 0);
     std::vector<T> shortestPathCosts(nc);
-    std::vector<int32> path(nc, -1);
-    std::vector<int32> col4row(nr, -1);
-    std::vector<int32> row4col(nc, -1);
+    std::vector<int> path(nc, -1);
+    std::vector<int> col4row(nr, -1);
+    std::vector<int> row4col(nc, -1);
     std::vector<bool> SR(nr);
     std::vector<bool> SC(nc);
 
     // iteratively build the solution
-    for (int32 curRow = 0; curRow < nr; curRow++) {
+    for (int curRow = 0; curRow < nr; curRow++) {
 
         T minVal;
-        int32 sink = augmenting_path<T>(
+        int sink = augmenting_path<T>(
             nc, cost, u, v, path, row4col,
             shortestPathCosts, curRow, SR, SC, &minVal);
         if (sink < 0) {
@@ -152,22 +152,22 @@ static int solve(const int32 nr,
 
         // update dual variables
         u[curRow] += minVal;
-        for (int32 i = 0; i < nr; i++) {
+        for (int i = 0; i < nr; i++) {
             if (SR[i] && i != curRow) {
                 u[i] += minVal - shortestPathCosts[col4row[i]];
             }
         }
 
-        for (int32 j = 0; j < nc; j++) {
+        for (int j = 0; j < nc; j++) {
             if (SC[j]) {
                 v[j] -= minVal - shortestPathCosts[j];
             }
         }
 
         // augment previous solution
-        int32 j = sink;
+        int j = sink;
         while (1) {
-            int32 i = path[j];
+            int i = path[j];
             row4col[j] = i;
             std::swap(col4row[i], j);
             if (i == curRow) {
@@ -176,7 +176,7 @@ static int solve(const int32 nr,
         }
     }
 
-    for (int32 i = 0; i < nr; i++) {
+    for (int i = 0; i < nr; i++) {
         output_col4row[i] = col4row[i];
     }
 
@@ -189,10 +189,10 @@ template <typename T>
 struct HungarianFunctor<CPUDevice, T> {
 
     void operator()(const CPUDevice& d,
-                    const int32 size_n,
-                    const int32 size_m,
+                    int size_n,
+                    int size_m,
                     const T* costs,
-                    int32* assignments) {
+                    int* assignments) {
 
         solve<T>(size_n, size_m, costs, assignments);
 
@@ -231,11 +231,11 @@ public:
                     errors::InvalidArgument("Too many elements in tensor"));
 
         // prepare shared variables for each shard
-        const int32 batch_size = static_cast<int32>(shape[0]);
-        const int32 size_n = static_cast<int32>(shape[1]);
-        const int32 size_m = static_cast<int32>(shape[2]);
+        int batch_size = static_cast<int>(shape[0]);
+        int size_n = static_cast<int>(shape[1]);
+        int size_m = static_cast<int>(shape[2]);
         const T* costs = costs_tensor.flat<T>().data();
-        int32* assignments = assignments_tensor->flat<int32>().data();
+        int* assignments = assignments_tensor->flat<int>().data();
 
         // implementation of the hungarian algorithm in c++
         auto sharded_function = [
@@ -243,10 +243,10 @@ public:
                 &size_n,
                 &size_m,
                 &costs,
-                &assignments](int64 start, int64 limit) {
+                &assignments](int start, int limit) {
 
             // batch-wise sharded function
-            for (int64 i = start; i < limit; i++) {
+            for (int i = start; i < limit; i++) {
 
                 // launch the device generalized operation functor
                 HungarianFunctor<Device, T>()(
@@ -282,9 +282,7 @@ public:
 
 REGISTER_CPU(double);
 REGISTER_CPU(float);
-REGISTER_CPU(int64);
-REGISTER_CPU(int32);
-REGISTER_CPU(int16);
+REGISTER_CPU(int);
 
 // function that registers GPU operation kernels
 #ifdef GOOGLE_CUDA
@@ -297,9 +295,7 @@ REGISTER_CPU(int16);
 
 REGISTER_GPU(double);
 REGISTER_GPU(float);
-REGISTER_GPU(int64);
-REGISTER_GPU(int32);
-REGISTER_GPU(int16);
+REGISTER_GPU(int);
 
 #endif  // GOOGLE_CUDA
 

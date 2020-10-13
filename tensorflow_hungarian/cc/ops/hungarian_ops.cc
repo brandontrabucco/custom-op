@@ -16,16 +16,16 @@ limitations under the License.
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/shape_inference.h"
 
-using std::vector;
 using namespace tensorflow;
 using shape_inference::Shape;
 using shape_inference::Dimension;
 using shape_inference::DimensionHandle;
 using shape_inference::ShapeHandle;
+using std::vector;
 
 // Shape of output is the first K - 1 dims of input with K dims
 REGISTER_OP("Hungarian")
-    .Attr("T: {int16, int32, int64, float, double}")
+    .Attr("T: {int32, float, double}")
     .Input("costs: T")
     .Output("assignments: int32")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
@@ -39,7 +39,7 @@ REGISTER_OP("Hungarian")
         }
 
         // otherwise, get the rank of the input tensor
-        const int32 input_rank = c->Rank(input);
+        const int input_rank = c->Rank(input);
 
         // then, get the first input_rank - 1 dimensions of the rank
         std::vector<DimensionHandle> dims;

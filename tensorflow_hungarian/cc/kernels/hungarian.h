@@ -2,19 +2,17 @@
 #ifndef KERNEL_HUNGARIAN_H_
 #define KERNEL_HUNGARIAN_H_
 
-#include "tensorflow/core/framework/op.h"
-
 namespace tensorflow {
 
 namespace functor {
 
 template <typename Device, typename T>
 struct HungarianFunctor {
-  void operator()(const Device& d,
-                  const int32 size_n,
-                  const int32 size_m,
-                  const T* costs,
-                  int32* assignments);
+    void operator()(const Device& d,
+                    int size_n,
+                    int size_m,
+                    const T* costs,
+                    int* assignments);
 };
 
 }  // namespace functor
