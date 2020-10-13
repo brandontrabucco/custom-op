@@ -188,8 +188,8 @@ struct HungarianFunctor<GPUDevice, T> {
                     const T* costs,
                     int32* assignments) {
 
-        T* costs_cpu = malloc(sizeof(T) * size_n * size_m);
-        int32* assignments_cpu = malloc(sizeof(int32) * size_n);
+        T* costs_cpu = (T*) malloc(sizeof(T) * size_n * size_m);
+        int32* assignments_cpu = (int32*) malloc(sizeof(int32) * size_n);
         cudaMemcpy(costs_cpu, costs, sizeof(T) * size_n * size_m,
                    cudaMemcpyDeviceToHost);
 
