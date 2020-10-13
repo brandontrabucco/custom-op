@@ -18,6 +18,7 @@ limitations under the License.
 #endif  // GOOGLE_CUDA
 
 #include "hungarian.h"
+#include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/shape_inference.h"
 #include "tensorflow/core/util/work_sharder.h"
 #include <algorithm>
